@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { engineManager } from "@/lib/engines/engine-manager";
+import { EngineManager } from "@/lib/engines/engine-manager";
 
 export async function GET(
     req: NextRequest,
@@ -7,7 +7,7 @@ export async function GET(
 ) {
     const params = await props.params;
     try {
-        const engine = await engineManager.getEngine(params.projectId);
+        const engine = await EngineManager.detectEngine(params.projectId);
         const files = await engine.getAllFiles(params.projectId);
         return NextResponse.json({ files });
     } catch (error) {
