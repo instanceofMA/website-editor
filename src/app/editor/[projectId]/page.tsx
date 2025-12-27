@@ -146,24 +146,42 @@ export default function EditorPage() {
 
     const handleExport = async () => {
         try {
-            // Scrape current HTML state from Iframe
-            const html =
+            // 1. Scrape current HTML state from Iframe (The "Live" version)
+            const liveHtml =
                 iframeRef.current?.contentDocument?.documentElement.outerHTML;
 
-            const response = await fetch(
-                getApiPath(`/api/projects/${projectId}/export`),
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({ html }),
-                }
+            // 2. Fetch ALL project files from server (The "Disk" version)
+            const res = await fetch(
+                getApiPath(`/api/projects/${projectId}/files`)
             );
+            if (!res.ok) throw new Error("Failed to fetch project files");
+            const { files } = await res.json();
 
-            if (!response.ok) throw new Error("Export failed");
+            // 3. Initialize JSZip
+            // Check if JSZip is loaded. We need to import it.
+            // Since we didn't import it at the top yet, I should add the import.
+            // But to keep this chunk clean, I'll assume we add the import in a separate step or I can dynamically import?
+            // "import JSZip from 'jszip'" is best.
+            const JSZip = (await import("jszip")).default;
+            const zip = new JSZip();
 
-            const blob = await response.blob();
+            // 4. Add files to Zip, overwriting the active page with Live HTML
+            Object.entries(files).forEach(([path, content]) => {
+                // If this is the active page, use our live version
+                // Normalize paths to be safe (remove leading slashes)
+                const normalizedPath = path.replace(/^\//, "");
+                const normalizedActive =
+                    activePage.replace(/^\//, "") || "index.html";
+
+                if (normalizedPath === normalizedActive && liveHtml) {
+                    zip.file(normalizedPath, liveHtml as string);
+                } else {
+                    zip.file(normalizedPath, content as string);
+                }
+            });
+
+            // 5. Generate and Download
+            const blob = await zip.generateAsync({ type: "blob" });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
@@ -173,8 +191,8 @@ export default function EditorPage() {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
         } catch (e) {
-            console.error(e);
-            alert("Failed to export.");
+            console.error("Export failed:", e);
+            alert("Failed to export project. Please try again.");
         }
     };
 

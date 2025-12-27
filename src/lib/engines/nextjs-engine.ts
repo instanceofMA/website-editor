@@ -128,14 +128,6 @@ export class NextjsEngine implements ProjectEngine {
     }
 
     async export(projectId: string): Promise<Buffer> {
-        const projectDir = this.getProjectDir(projectId);
-        const zip = new AdmZip();
-
-        // Exclude node_modules and .next
-        const zipIgnore = ["node_modules", ".next"];
-        // Logic to zip folder excluding these would go here
-        // For now, simpler:
-        zip.addLocalFolder(projectDir, undefined, (filename) => {
             return (
                 !filename.includes("node_modules") &&
                 !filename.includes(".next")

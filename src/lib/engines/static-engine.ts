@@ -94,4 +94,41 @@ export class StaticEngine implements ProjectEngine {
 
         return zip.toBuffer();
     }
+
+    async getAllFiles(projectId: string): Promise<Record<string, string>> {
+        const projectDir = this.getProjectDir(projectId);
+        const files: Record<string, string> = {};
+
+        async function readDir(dir: string, base: string) {
+            try {
+                const entries = await fs.readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    const relPath = path.join(base, entry.name);
+
+                    if (entry.isDirectory()) {
+                        await readDir(fullPath, relPath);
+                    } else {
+                        // Skip binary files for now or handle them as base64?
+                        // For simplicity in this text-heavy editor, we read as utf-8.
+                        // Ideally we check extension.
+                        try {
+                            const content = await fs.readFile(
+                                fullPath,
+                                "utf-8"
+                            );
+                            files[relPath] = content;
+                        } catch (e) {
+                            console.warn(`Failed to read file ${relPath}`, e);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn(`Failed to read dir ${dir}`, e);
+            }
+        }
+
+        await readDir(projectDir, "");
+        return files;
+    }
 }

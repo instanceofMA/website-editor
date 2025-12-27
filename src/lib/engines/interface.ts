@@ -49,9 +49,11 @@ export interface ProjectEngine {
         content: string
     ): Promise<void>;
 
+    getAllFiles(projectId: string): Promise<Record<string, string>>;
+
     /**
      * Prepares the project for download.
      * Returns a zip buffer of the source code (cleaned of editor artifacts).
      */
-    export(projectId: string): Promise<Blob | Buffer>;
+    export(projectId: string): Promise<Buffer>;
 }
