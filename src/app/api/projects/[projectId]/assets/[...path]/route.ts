@@ -33,6 +33,48 @@ export async function GET(
             },
         });
     } catch (e) {
+        // Fallback: Try loading from templates (Stateless recovery for demos)
+        try {
+            const relativePath = filePathArray.join("/");
+
+            // Try Static Template
+            const staticTemplatePath = path.join(
+                process.cwd(),
+                "src",
+                "templates",
+                "static",
+                relativePath
+            );
+            try {
+                const content = await fs.readFile(staticTemplatePath);
+                const contentType =
+                    mime.lookup(staticTemplatePath) ||
+                    "application/octet-stream";
+                return new NextResponse(content, {
+                    headers: { "Content-Type": contentType },
+                });
+            } catch {}
+
+            // Try Next.js Template
+            const nextTemplatePath = path.join(
+                process.cwd(),
+                "src",
+                "templates",
+                "nextjs",
+                relativePath
+            );
+            try {
+                const content = await fs.readFile(nextTemplatePath);
+                const contentType =
+                    mime.lookup(nextTemplatePath) || "application/octet-stream";
+                return new NextResponse(content, {
+                    headers: { "Content-Type": contentType },
+                });
+            } catch {}
+        } catch (templateError) {
+            // Ignore template lookup errors
+        }
+
         console.error(`Asset not found: ${filePath}`);
         return new NextResponse("Not Found", { status: 404 });
     }
