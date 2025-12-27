@@ -3,6 +3,7 @@ import { StaticEngine } from "./static-engine";
 import { NextjsEngine } from "./nextjs-engine";
 import path from "path";
 import fs from "fs/promises";
+import { getProjectsDir } from "@/lib/storage";
 
 export class EngineManager {
     static getEngine(type: string = "static"): ProjectEngine {
@@ -19,7 +20,7 @@ export class EngineManager {
         // Strategy: Location determines Engine
 
         // 1. Check .projects (Next.js OR Static)
-        const projectDir = path.join(process.cwd(), ".projects", projectId);
+        const projectDir = path.join(getProjectsDir(), projectId);
         try {
             await fs.access(projectDir);
 

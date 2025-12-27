@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 import mime from "mime-types";
+import { getProjectsDir } from "@/lib/storage";
 
 export async function GET(
     req: NextRequest,
@@ -14,15 +15,10 @@ export async function GET(
     }
 
     // Construct file path
-    const filePath = path.join(
-        process.cwd(),
-        ".projects",
-        projectId,
-        ...filePathArray
-    );
+    const projectRoot = path.join(getProjectsDir(), projectId);
+    const filePath = path.join(projectRoot, ...filePathArray);
 
     // Security check: Ensure we don't traverse up
-    const projectRoot = path.join(process.cwd(), ".projects", projectId);
     if (!filePath.startsWith(projectRoot)) {
         return new NextResponse("Forbidden", { status: 403 });
     }

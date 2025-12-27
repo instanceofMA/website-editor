@@ -5,13 +5,14 @@ import AdmZip from "adm-zip";
 import { spawn } from "child_process";
 import { processManager } from "./process-manager";
 import { EDITOR_SCRIPT } from "@/lib/editor-script";
+import { getProjectsDir } from "@/lib/storage";
 
 export class NextjsEngine implements ProjectEngine {
     id = "nextjs";
 
     private getProjectDir(projectId: string): string {
         // Store Next.js projects in a private directory to avoid interfering with main app
-        return path.join(process.cwd(), ".projects", projectId);
+        return path.join(getProjectsDir(), projectId);
     }
 
     async initialize(projectId: string, fileData: Buffer): Promise<void> {

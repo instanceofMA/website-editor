@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { EngineManager } from "@/lib/engines/engine-manager";
+import { getProjectsDir } from "@/lib/storage";
 
 export async function POST(
     req: NextRequest,

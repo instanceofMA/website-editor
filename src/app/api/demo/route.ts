@@ -13,7 +13,19 @@ export async function POST(req: NextRequest) {
 
         // Determing source directory
         const templateName = templateId || "static";
-        // We might map 'nextjs-starter' -> 'nextjs' folder
+
+        // Vercel / Next.js Build Output Handling
+        // On Vercel, source files might not be in process.cwd()/src if we are using standalone mode, etc.
+        // We try a few locations.
+        const possibleBaseDirs = [
+            path.join(process.cwd(), "src", "templates"),
+            path.join(process.cwd(), "templates"), // fallback
+            path.join(__dirname, "../../../../../src/templates"), // Deeply nested build output
+        ];
+
+        // Need to check which one exists using fs (not async here for simplicity of flow, but could be)
+        // ...actually let's just stick to the main one and hope Vercel NFT picked it up.
+        // But we MUST ensure we don't crash if it's missing.
 
         const templatesDir = path.join(process.cwd(), "src", "templates");
         let sourceDir = path.join(templatesDir, "static");

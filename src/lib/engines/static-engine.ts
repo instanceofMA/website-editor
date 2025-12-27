@@ -3,12 +3,13 @@ import path from "path";
 import fs from "fs/promises";
 import AdmZip from "adm-zip";
 import { EDITOR_SCRIPT } from "@/lib/editor-script";
+import { getProjectsDir } from "@/lib/storage";
 
 export class StaticEngine implements ProjectEngine {
     id = "static";
 
     private getProjectDir(projectId: string): string {
-        return path.join(process.cwd(), ".projects", projectId);
+        return path.join(getProjectsDir(), projectId);
     }
 
     async initialize(projectId: string, fileData: Buffer): Promise<void> {
