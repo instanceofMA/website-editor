@@ -128,13 +128,11 @@ export class NextjsEngine implements ProjectEngine {
     }
 
     async export(projectId: string): Promise<Buffer> {
-            return (
-                !filename.includes("node_modules") &&
-                !filename.includes(".next")
-            );
-        });
+        throw new Error("Export not implemented for Next.js projects yet");
+    }
 
-        return zip.toBuffer();
+    async getAllFiles(projectId: string): Promise<Record<string, string>> {
+        throw new Error("getAllFiles not implemented for Next.js projects yet");
     }
 
     private runCommand(
