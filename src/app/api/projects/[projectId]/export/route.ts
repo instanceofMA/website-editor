@@ -32,7 +32,7 @@ export async function POST(
         // GENERATE ZIP
         const zipBuffer = await engine.export(projectId);
 
-        return new NextResponse(zipBuffer, {
+        return new NextResponse(new Blob([zipBuffer as any]), {
             headers: {
                 "Content-Type": "application/zip",
                 "Content-Disposition": `attachment; filename="project-${projectId}.zip"`,
