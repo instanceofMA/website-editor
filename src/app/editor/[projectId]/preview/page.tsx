@@ -20,9 +20,24 @@ export default function PreviewPage() {
     useEffect(() => {
         if (projectId) {
             // 1. Try Local Fallback (Immediate)
+            // 1. Try Local Fallback (Immediate) with Base URL Injection
             const localHtml = localStorage.getItem(`preview_html_${projectId}`);
             if (localHtml) {
-                setSrcDoc(localHtml);
+                // Construct the asset base URL optimistically
+                const assetBaseVal = getApiPath(
+                    `/api/projects/${projectId}/assets/`
+                );
+
+                // Inject <base> tag to fix relative path resolution
+                let processedHtml = localHtml;
+                if (!localHtml.includes("<base")) {
+                    processedHtml = localHtml.replace(
+                        "<head>",
+                        `<head><base href="${assetBaseVal}">`
+                    );
+                }
+
+                setSrcDoc(processedHtml);
                 setLoading(false);
             }
 
