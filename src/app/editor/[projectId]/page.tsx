@@ -117,6 +117,33 @@ export default function EditorPage() {
             : `${baseUrl}/${activePage}`
         : "";
 
+    const handlePreview = async () => {
+        // Save to Server (Persisted)
+        try {
+            const html =
+                iframeRef.current?.contentDocument?.documentElement.outerHTML;
+            if (html) {
+                // 1. Local Persistence (Speed + Fallback)
+                localStorage.setItem(`preview_html_${projectId}`, html);
+
+                // 2. Server Persistence
+                await fetch(getApiPath(`/api/projects/${projectId}/save`), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        html,
+                        page: activePage || "index.html",
+                    }),
+                });
+            }
+        } catch (e) {
+            console.error("Preview save failed", e);
+        }
+
+        // Navigate
+        router.push(`/editor/${projectId}/preview`);
+    };
+
     const handleExport = async () => {
         try {
             // Scrape current HTML state from Iframe
@@ -276,9 +303,7 @@ export default function EditorPage() {
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                            router.push(`/editor/${projectId}/preview`)
-                        }
+                        onClick={handlePreview}
                         className="cursor-pointer"
                     >
                         Preview

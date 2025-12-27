@@ -74,6 +74,7 @@ export class StaticEngine implements ProjectEngine {
         content: string
     ): Promise<void> {
         const fullPath = path.join(this.getProjectDir(projectId), filePath);
+        await fs.mkdir(path.dirname(fullPath), { recursive: true });
         await fs.writeFile(fullPath, content);
     }
 

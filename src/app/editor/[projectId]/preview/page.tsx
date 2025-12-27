@@ -13,22 +13,36 @@ export default function PreviewPage() {
     const iframeRef = useRef<HTMLIFrameElement>(null);
 
     const [activePage, setActivePage] = useState("");
+    const [srcDoc, setSrcDoc] = useState("");
     const [baseUrl, setBaseUrl] = useState("");
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (projectId) {
+            // 1. Try Local Fallback (Immediate)
+            const localHtml = localStorage.getItem(`preview_html_${projectId}`);
+            if (localHtml) {
+                setSrcDoc(localHtml);
+                setLoading(false);
+            }
+
+            // 2. Load Server Info (for assets base URL if needed)
             fetch(getApiPath(`/api/projects/${projectId}/pages`))
                 .then((res) => res.json())
                 .then((data) => {
                     if (data.baseUrl) setBaseUrl(data.baseUrl);
-                    if (data.pages && data.pages.length > 0) {
-                        if (data.pages.includes("index.html"))
-                            setActivePage("index.html");
-                        else if (data.pages.includes("/")) setActivePage("/");
-                        else setActivePage(data.pages[0]);
+                    // If no local HTML, we rely on server
+                    if (!localHtml) {
+                        // ... logic to set active page ...
+                        if (data.pages && data.pages.length > 0) {
+                            if (data.pages.includes("index.html"))
+                                setActivePage("index.html");
+                            else if (data.pages.includes("/"))
+                                setActivePage("/");
+                            else setActivePage(data.pages[0]);
+                        }
+                        setLoading(false);
                     }
-                    setLoading(false);
                 })
                 .catch((err) => {
                     console.error(err);
@@ -37,11 +51,12 @@ export default function PreviewPage() {
         }
     }, [projectId]);
 
-    const srcUrl = baseUrl
-        ? activePage.startsWith("/")
-            ? `${baseUrl}${activePage}`
-            : `${baseUrl}/${activePage}`
-        : "";
+    const srcUrl =
+        !srcDoc && baseUrl
+            ? activePage.startsWith("/")
+                ? `${baseUrl}${activePage}`
+                : `${baseUrl}/${activePage}`
+            : undefined;
 
     // Toggle Preview Mode in Iframe on Load
     const handleIframeLoad = () => {
@@ -83,7 +98,8 @@ export default function PreviewPage() {
             ) : (
                 <iframe
                     ref={iframeRef}
-                    src={srcUrl || undefined}
+                    src={srcUrl}
+                    srcDoc={srcDoc}
                     className="w-full h-full border-0"
                     title="Website Preview"
                     onLoad={handleIframeLoad}
