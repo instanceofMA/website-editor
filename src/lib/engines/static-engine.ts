@@ -53,7 +53,9 @@ export class StaticEngine implements ProjectEngine {
 
         // Return base URL (serving from API proxy)
         // Access: /api/projects/{id}/assets/index.html
-        return `/api/projects/${projectId}/assets`;
+        // We need to include the basePath if configured
+        const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+        return `${basePath}/api/projects/${projectId}/assets`;
     }
 
     async listPages(projectId: string): Promise<string[]> {

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { getApiPath } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,7 +56,7 @@ export default function DemoSelectionPage() {
     const handleSelect = async (templateId: string) => {
         setLoading(templateId);
         try {
-            const res = await fetch("/api/demo", {
+            const res = await fetch(getApiPath("/api/demo"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ templateId }),

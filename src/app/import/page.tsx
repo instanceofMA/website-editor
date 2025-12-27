@@ -22,7 +22,7 @@ import {
     Loader2,
     Upload,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getApiPath } from "@/lib/utils";
 
 // Schema for client-side form
 const FormSchema = z.object({
@@ -72,7 +72,7 @@ export default function ImportPage() {
         formData.append("type", data.type);
 
         try {
-            const res = await fetch("/api/import", {
+            const res = await fetch(getApiPath("/api/import"), {
                 method: "POST",
                 body: formData,
             });

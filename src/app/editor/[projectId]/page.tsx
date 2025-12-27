@@ -16,6 +16,7 @@ import { EditorSidebar } from "@/components/editor/sidebar";
 import { PropertiesPanel } from "@/components/editor/properties-panel";
 import { useEditorCommunication } from "@/hooks/use-editor-communication";
 import { SaveStatus } from "@/components/editor/save-status";
+import { getApiPath } from "@/lib/utils";
 
 import InfiniteCanvas, {
     InfiniteCanvasRef,
@@ -50,7 +51,7 @@ export default function EditorPage() {
                     iframeRef.current?.contentDocument?.documentElement
                         .outerHTML;
                 if (html) {
-                    await fetch(`/api/projects/${projectId}/save`, {
+                    await fetch(getApiPath(`/api/projects/${projectId}/save`), {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -91,7 +92,7 @@ export default function EditorPage() {
     useEffect(() => {
         if (projectId) {
             setIsBooting(true);
-            fetch(`/api/projects/${projectId}/pages`)
+            fetch(getApiPath(`/api/projects/${projectId}/pages`))
                 .then((res) => res.json())
                 .then((data) => {
                     if (data.baseUrl) setBaseUrl(data.baseUrl);
@@ -122,13 +123,16 @@ export default function EditorPage() {
             const html =
                 iframeRef.current?.contentDocument?.documentElement.outerHTML;
 
-            const response = await fetch(`/api/projects/${projectId}/export`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ html }),
-            });
+            const response = await fetch(
+                getApiPath(`/api/projects/${projectId}/export`),
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ html }),
+                }
+            );
 
             if (!response.ok) throw new Error("Export failed");
 

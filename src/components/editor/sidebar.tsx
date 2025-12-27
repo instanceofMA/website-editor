@@ -6,7 +6,7 @@ import {
     PanelLeftClose,
     PanelLeftOpen,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getApiPath } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const SidebarItem = ({
@@ -54,7 +54,7 @@ export function EditorSidebar({
 
     useEffect(() => {
         if (projectId) {
-            fetch(`/api/projects/${projectId}/pages`)
+            fetch(getApiPath(`/api/projects/${projectId}/pages`))
                 .then((res) => res.json())
                 .then((data) => {
                     if (data.pages && Array.isArray(data.pages)) {

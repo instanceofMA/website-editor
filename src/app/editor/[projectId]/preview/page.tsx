@@ -4,6 +4,7 @@ import React, { useRef, useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
+import { getApiPath } from "@/lib/utils";
 
 export default function PreviewPage() {
     const params = useParams();
@@ -17,7 +18,7 @@ export default function PreviewPage() {
 
     useEffect(() => {
         if (projectId) {
-            fetch(`/api/projects/${projectId}/pages`)
+            fetch(getApiPath(`/api/projects/${projectId}/pages`))
                 .then((res) => res.json())
                 .then((data) => {
                     if (data.baseUrl) setBaseUrl(data.baseUrl);

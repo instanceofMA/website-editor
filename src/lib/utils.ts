@@ -30,6 +30,13 @@ const NOUNS = [
     "space",
 ];
 
+export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
+
+export function getApiPath(path: string) {
+    if (path.startsWith("/")) return `${BASE_PATH}${path}`;
+    return `${BASE_PATH}/${path}`;
+}
+
 export function generateProjectId(): string {
     const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
     const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
