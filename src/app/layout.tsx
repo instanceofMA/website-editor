@@ -12,6 +12,14 @@ export const metadata: Metadata = {
     description: "Visual website editor for HTML/CSS projects",
 };
 
+import {
+    TicketProvider,
+    TicketWindow,
+    TicketFAB,
+} from "@/features/ticket-widget";
+
+// ...
+
 export default function RootLayout({
     children,
 }: Readonly<{
@@ -22,7 +30,11 @@ export default function RootLayout({
             <body
                 className={`${inter.variable} font-sans antialiased h-full bg-background text-foreground overflow-hidden`}
             >
-                {children}
+                <TicketProvider>
+                    {children}
+                    <TicketWindow />
+                    <TicketFAB />
+                </TicketProvider>
             </body>
         </html>
     );
