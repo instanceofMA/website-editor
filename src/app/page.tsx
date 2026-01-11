@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { DemoButton } from "@/components/demo-button";
+import { Button } from "~/components/ui/button";
+import { DemoButton } from "~/components/demo-button";
 import { ArrowRight, Globe, Layers } from "lucide-react";
+import { TicketWindow, TicketFAB } from "~/features/ticket-widget";
 
 export default function Home() {
     return (
         <div className="flex flex-col min-h-screen">
+            <TicketWindow />
+            <TicketFAB />
             {/* Header */}
             <header className="flex items-center h-16 px-6 border-b border-border bg-background">
                 <div className="flex items-center gap-2 font-semibold text-lg">

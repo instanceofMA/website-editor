@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Button } from "@/components/ui/button";
+import { Button } from "~/components/ui/button";
 import {
     Card,
     CardContent,
@@ -13,8 +13,12 @@ import {
     CardFooter,
     CardHeader,
     CardTitle,
-} from "@/components/ui/card";
-import { ProjectTypeSchema } from "@/lib/schemas";
+} from "~/components/ui/card";
+import {
+    ProjectTypeSchema,
+    ImportProjectSchema,
+    type ImportProjectInput,
+} from "~/lib/schemas";
 import {
     FileCode,
     CheckCircle2,
@@ -22,24 +26,8 @@ import {
     Loader2,
     Upload,
 } from "lucide-react";
-import { cn, getApiPath } from "@/lib/utils";
-
-// Schema for client-side form
-const FormSchema = z.object({
-    type: ProjectTypeSchema,
-    file: z
-        .instanceof(File, { message: "Please upload a zip file" })
-        .refine(
-            (file) => file.name.endsWith(".zip"),
-            "File must be a .zip archive"
-        )
-        .refine(
-            (file) => file.size <= 50 * 1024 * 1024,
-            "File size must be less than 50MB"
-        ),
-});
-
-type FormData = z.infer<typeof FormSchema>;
+import { cn, getApiPath } from "~/lib/utils";
+import { TicketWindow, TicketFAB } from "~/features/ticket-widget";
 
 export default function ImportPage() {
     const router = useRouter();
@@ -54,8 +42,8 @@ export default function ImportPage() {
         watch,
         formState: { errors },
         resetField,
-    } = useForm<FormData>({
-        resolver: zodResolver(FormSchema),
+    } = useForm<ImportProjectInput>({
+        resolver: zodResolver(ImportProjectSchema),
         defaultValues: {
             type: "html-css-js",
         },
@@ -64,7 +52,7 @@ export default function ImportPage() {
     const selectedType = watch("type");
     const file = watch("file");
 
-    const onSubmit = async (data: FormData) => {
+    const onSubmit = async (data: ImportProjectInput) => {
         setStatus("uploading");
 
         const formData = new FormData();
@@ -122,6 +110,8 @@ export default function ImportPage() {
 
     return (
         <div className="min-h-screen bg-secondary/30 flex items-center justify-center p-4">
+            <TicketWindow />
+            <TicketFAB />
             <Card className="w-full max-w-lg bg-background border-border shadow-lg">
                 <form onSubmit={handleSubmit(onSubmit)}>
                     <CardHeader>

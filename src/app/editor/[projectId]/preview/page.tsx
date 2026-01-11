@@ -2,9 +2,10 @@
 
 import React, { useRef, useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { ChevronLeft } from "lucide-react";
-import { getApiPath } from "@/lib/utils";
+import { getApiPath } from "~/lib/utils";
+import { api } from "~/trpc/react";
 
 export default function PreviewPage() {
     const params = useParams();
@@ -17,10 +18,13 @@ export default function PreviewPage() {
     const [baseUrl, setBaseUrl] = useState("");
     const [loading, setLoading] = useState(true);
 
+    const { data: serverData, isLoading: isServerLoading } =
+        api.project.getPages.useQuery({ projectId }, { enabled: !!projectId });
+
     useEffect(() => {
         if (projectId) {
             // 1. Try Local Fallback (Immediate)
-            // 1. Try Local Fallback (Immediate) with Base URL Injection
+            /*
             const localHtml = localStorage.getItem(`preview_html_${projectId}`);
             if (localHtml) {
                 // Construct the asset base URL optimistically
@@ -39,32 +43,28 @@ export default function PreviewPage() {
 
                 setSrcDoc(processedHtml);
                 setLoading(false);
+            } else {
+                // No local HTML, waiting for server data...
             }
-
-            // 2. Load Server Info (for assets base URL if needed)
-            fetch(getApiPath(`/api/projects/${projectId}/pages`))
-                .then((res) => res.json())
-                .then((data) => {
-                    if (data.baseUrl) setBaseUrl(data.baseUrl);
-                    // If no local HTML, we rely on server
-                    if (!localHtml) {
-                        // ... logic to set active page ...
-                        if (data.pages && data.pages.length > 0) {
-                            if (data.pages.includes("index.html"))
-                                setActivePage("index.html");
-                            else if (data.pages.includes("/"))
-                                setActivePage("/");
-                            else setActivePage(data.pages[0]);
-                        }
-                        setLoading(false);
-                    }
-                })
-                .catch((err) => {
-                    console.error(err);
-                    setLoading(false);
-                });
+            */
         }
     }, [projectId]);
+
+    // React to server data updates if we didn't load from local
+    useEffect(() => {
+        if (serverData && !srcDoc) {
+            if (serverData.baseUrl) setBaseUrl(serverData.baseUrl);
+
+            if (serverData.pages && serverData.pages.length > 0) {
+                if (serverData.pages.includes("index.html"))
+                    setActivePage("index.html");
+                else if (serverData.pages.includes("/")) setActivePage("/");
+                else if (serverData.pages[0])
+                    setActivePage(serverData.pages[0]);
+            }
+            setLoading(false);
+        }
+    }, [serverData, srcDoc]);
 
     const srcUrl =
         !srcDoc && baseUrl

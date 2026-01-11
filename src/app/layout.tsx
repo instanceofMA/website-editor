@@ -1,40 +1,31 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
+import "~/styles/globals.css";
 
-const inter = Inter({
-    variable: "--font-sans",
-    subsets: ["latin"],
-});
+import { type Metadata } from "next";
+import { Geist } from "next/font/google";
+
+import { TRPCReactProvider } from "~/trpc/react";
+import { TicketProvider } from "~/features/ticket-widget";
 
 export const metadata: Metadata = {
     title: "Website Editor",
-    description: "Visual website editor for HTML/CSS projects",
+    description: "Edit your websites easily with no-code",
+    icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
-import {
-    TicketProvider,
-    TicketWindow,
-    TicketFAB,
-} from "@/features/ticket-widget";
-
-// ...
+const geist = Geist({
+    subsets: ["latin"],
+    variable: "--font-geist-sans",
+});
 
 export default function RootLayout({
     children,
-}: Readonly<{
-    children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
     return (
-        <html lang="en" className="h-full">
-            <body
-                className={`${inter.variable} font-sans antialiased h-full bg-background text-foreground overflow-hidden`}
-            >
-                <TicketProvider>
-                    {children}
-                    <TicketWindow />
-                    <TicketFAB />
-                </TicketProvider>
+        <html lang="en" className={`${geist.variable}`}>
+            <body>
+                <TRPCReactProvider>
+                    <TicketProvider>{children}</TicketProvider>
+                </TRPCReactProvider>
             </body>
         </html>
     );

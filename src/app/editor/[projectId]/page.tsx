@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button } from "~/components/ui/button";
 import {
     Monitor,
     Smartphone,
@@ -12,15 +12,17 @@ import {
     ZoomOut,
     Expand,
 } from "lucide-react";
-import { EditorSidebar } from "@/components/editor/sidebar";
-import { PropertiesPanel } from "@/components/editor/properties-panel";
-import { useEditorCommunication } from "@/hooks/use-editor-communication";
-import { SaveStatus } from "@/components/editor/save-status";
-import { getApiPath } from "@/lib/utils";
+import { EditorSidebar } from "~/features/editor/sidebar";
+import { PropertiesPanel } from "~/features/editor/properties-panel";
+import { useEditorCommunication } from "~/hooks/use-editor-communication";
+import { SaveStatus } from "~/features/editor/save-status";
+import { getApiPath } from "~/lib/utils";
+import { api } from "~/trpc/react";
 
 import InfiniteCanvas, {
-    InfiniteCanvasRef,
-} from "@/components/editor/InfiniteCanvas";
+    type InfiniteCanvasRef,
+} from "~/features/editor/InfiniteCanvas";
+import { EditorBridge } from "~/lib/editor/bridge";
 
 export default function EditorPage() {
     const params = useParams();
@@ -39,38 +41,104 @@ export default function EditorPage() {
         "saved"
     );
     const saveTimeoutRef = useRef<NodeJS.Timeout>(null);
+    const utils = api.useUtils();
+
+    const saveMutation = api.project.save.useMutation({
+        onSuccess: () => setSaveStatus("saved"),
+        onError: () => setSaveStatus("error"),
+    });
+
+    // Patch Accumulation
+    const patchesRef = useRef<any[]>([]);
 
     const triggerAutoSave = useCallback(() => {
         setSaveStatus("saving");
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
         saveTimeoutRef.current = setTimeout(async () => {
-            // Only auto-save if we have a valid page target
             try {
-                const html =
-                    iframeRef.current?.contentDocument?.documentElement
-                        .outerHTML;
-                if (html) {
-                    await fetch(getApiPath(`/api/projects/${projectId}/save`), {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            html,
-                            page: activePage || "index.html",
-                        }),
+                // Priority: Save Patches if any
+                if (patchesRef.current.length > 0) {
+                    const patchesToSend = [...patchesRef.current];
+                    patchesRef.current = []; // Clear immediately
+
+                    await saveMutation.mutateAsync({
+                        projectId,
+                        patches: patchesToSend,
                     });
-                    setSaveStatus("saved");
+                    return;
                 }
+
+                // If we got here, we had nothing to save.
+                setSaveStatus("saved");
+
+                // Fallback: Full HTML Save (Legacy/Backup)
+                /* 
+                // Commented out to enforce Patching Architecture.
+                // Enable this only if we want dual-save or fallback.
+                const html = await EditorBridge.getInstance().getHtml();
+                if (html) {
+                    const styles = await EditorBridge.getInstance().getGeneratedStyles();
+                    saveMutation.mutate({ projectId, pages: [{ path: activePage || "index.html", content: html }], styles });
+                }
+                */
             } catch (e) {
                 console.error("Auto-save failed:", e);
                 setSaveStatus("error");
             }
         }, 2000);
-    }, [projectId, activePage]);
+    }, [projectId, activePage, saveMutation]);
+
+    useEffect(() => {
+        const bridge = EditorBridge.getInstance();
+        const unsub = bridge.onPatch((op) => {
+            console.log("Captured Patch:", op);
+
+            // Compaction Logic:
+            // If the last patch matches the same element and same operation type,
+            // we overwrite it locally before sending. This handles rapid text input.
+            const lastOp = patchesRef.current[patchesRef.current.length - 1];
+
+            let merged = false;
+            if (lastOp && lastOp.lid === op.lid && lastOp.type === op.type) {
+                // For styles/attributes, ensure we are updating the SAME property
+                if (op.type === "style" && lastOp.property === op.property) {
+                    lastOp.value = op.value;
+                    merged = true;
+                } else if (
+                    op.type === "attribute" &&
+                    lastOp.attribute === op.attribute
+                ) {
+                    lastOp.value = op.value;
+                    merged = true;
+                } else if (op.type === "text" || op.type === "class") {
+                    lastOp.value = op.value;
+                    merged = true;
+                }
+            }
+
+            if (!merged) {
+                patchesRef.current.push(op);
+            }
+
+            triggerAutoSave();
+        });
+        return () => {
+            unsub();
+        };
+    }, [triggerAutoSave]);
 
     // Custom Hook for logic
-    const { selectedElement, loading, updateText, updateAttribute } =
-        useEditorCommunication(iframeRef, triggerAutoSave);
+    const {
+        selectedElement,
+        loading,
+        availableClasses,
+        updateText,
+        updateAttribute,
+        updateStyle,
+        updateCssRule,
+        updateClass,
+    } = useEditorCommunication(iframeRef, triggerAutoSave);
 
     // Track current scale for UI display only
     const [currentScale, setCurrentScale] = useState(0.6);
@@ -89,27 +157,26 @@ export default function EditorPage() {
         }
     }, [isBooting]);
 
+    const { data: projectData, isLoading: isBootingQuery } =
+        api.project.getPages.useQuery(
+            { projectId },
+            {
+                enabled: !!projectId,
+            }
+        );
+
     useEffect(() => {
-        if (projectId) {
-            setIsBooting(true);
-            fetch(getApiPath(`/api/projects/${projectId}/pages`))
-                .then((res) => res.json())
-                .then((data) => {
-                    if (data.baseUrl) setBaseUrl(data.baseUrl);
-                    if (data.pages && data.pages.length > 0) {
-                        if (data.pages.includes("index.html"))
-                            setActivePage("index.html");
-                        else if (data.pages.includes("/")) setActivePage("/");
-                        else setActivePage(data.pages[0]);
-                    }
-                    setIsBooting(false);
-                })
-                .catch((err) => {
-                    console.error(err);
-                    setIsBooting(false);
-                });
+        if (projectData) {
+            if (projectData.baseUrl) setBaseUrl(projectData.baseUrl);
+            if (projectData.pages && projectData.pages.length > 0) {
+                if (projectData.pages.includes("index.html"))
+                    setActivePage("index.html");
+                else if (projectData.pages.includes("/")) setActivePage("/");
+                else setActivePage(projectData.pages[0]!); // Force non-null
+            }
+            setIsBooting(false);
         }
-    }, [projectId]);
+    }, [projectData]);
 
     const srcUrl = baseUrl
         ? activePage.startsWith("/")
@@ -120,20 +187,21 @@ export default function EditorPage() {
     const handlePreview = async () => {
         // Save to Server (Persisted)
         try {
-            const html =
-                iframeRef.current?.contentDocument?.documentElement.outerHTML;
+            const html = await EditorBridge.getInstance().getHtml();
             if (html) {
                 // 1. Local Persistence (Speed + Fallback)
                 localStorage.setItem(`preview_html_${projectId}`, html);
 
                 // 2. Server Persistence
-                await fetch(getApiPath(`/api/projects/${projectId}/save`), {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        html,
-                        page: activePage || "index.html",
-                    }),
+                const styles =
+                    await EditorBridge.getInstance().getGeneratedStyles();
+
+                await saveMutation.mutateAsync({
+                    projectId,
+                    pages: [
+                        { path: activePage || "index.html", content: html },
+                    ],
+                    styles,
                 });
             }
         } catch (e) {
@@ -147,15 +215,10 @@ export default function EditorPage() {
     const handleExport = async () => {
         try {
             // 1. Scrape current HTML state from Iframe (The "Live" version)
-            const liveHtml =
-                iframeRef.current?.contentDocument?.documentElement.outerHTML;
+            const liveHtml = await EditorBridge.getInstance().getHtml();
 
             // 2. Fetch ALL project files from server (The "Disk" version)
-            const res = await fetch(
-                getApiPath(`/api/projects/${projectId}/files`)
-            );
-            if (!res.ok) throw new Error("Failed to fetch project files");
-            const { files } = await res.json();
+            const { files } = await utils.project.getFiles.fetch({ projectId });
 
             // 3. Initialize JSZip
             // Check if JSZip is loaded. We need to import it.
@@ -321,10 +384,17 @@ export default function EditorPage() {
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={handlePreview}
+                        onClick={() => {
+                            const urlToOpen = srcUrl || baseUrl;
+                            if (urlToOpen) {
+                                window.open(urlToOpen, "_blank");
+                            } else {
+                                alert("Project is still booting. Please wait.");
+                            }
+                        }}
                         className="cursor-pointer"
                     >
-                        Preview
+                        Preview Site
                     </Button>
                     <Button
                         size="sm"
@@ -366,16 +436,6 @@ export default function EditorPage() {
                                 marginRight: "100px",
                             }}
                         >
-                            {(loading || isBooting) && (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-background z-20 gap-4">
-                                    <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                                    <span className="text-muted-foreground font-medium animate-pulse">
-                                        {isBooting
-                                            ? "Booting..."
-                                            : "Loading..."}
-                                    </span>
-                                </div>
-                            )}
                             <iframe
                                 ref={iframeRef}
                                 src={srcUrl || undefined}
@@ -387,11 +447,37 @@ export default function EditorPage() {
                 </main>
 
                 <PropertiesPanel
+                    iframeRef={iframeRef}
                     selectedElement={selectedElement}
                     onTextChange={updateText}
                     onAttributeChange={updateAttribute}
+                    onStyleChange={updateStyle}
+                    onCssChange={updateCssRule}
+                    onClassChange={updateClass}
+                    availableClasses={availableClasses}
                 />
             </div>
+
+            {/* Full Screen Booting/Loading State */}
+            {(isBooting || loading) && (
+                <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
+                    <div className="flex flex-col items-center gap-4 animate-in fade-in zoom-in duration-300">
+                        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                        <div className="flex flex-col items-center gap-1">
+                            <span className="text-lg font-medium text-foreground tracking-tight">
+                                {isBooting
+                                    ? "Booting Engine..."
+                                    : "Loading Website..."}
+                            </span>
+                            <span className="text-xs text-muted-foreground animate-pulse">
+                                {isBooting
+                                    ? "Initializing environment..."
+                                    : "Waiting for content..."}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

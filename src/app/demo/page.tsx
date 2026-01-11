@@ -1,20 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { getApiPath } from "@/lib/utils";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import {
-    ArrowRight,
-    Box,
-    Code,
-    Layers,
-    Layout,
-    Loader2,
-    Sparkles,
-    Zap,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { api } from "~/trpc/react";
+import { Button } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
+import { ArrowRight, Box, Layout, Loader2, Sparkles } from "lucide-react";
+import { TicketWindow, TicketFAB } from "~/features/ticket-widget";
 
 const TEMPLATES = [
     {
@@ -53,28 +45,26 @@ export default function DemoSelectionPage() {
     const router = useRouter();
     const [loading, setLoading] = useState<string | null>(null);
 
+    const createDemo = api.project.createDemo.useMutation({
+        onSuccess: (data: { projectId: string }) => {
+            router.push(`/editor/${data.projectId}`);
+        },
+        onError: (e) => {
+            console.error(e);
+            alert(`Failed to start demo: ${e.message}`);
+            setLoading(null);
+        },
+    });
+
     const handleSelect = async (templateId: string) => {
         setLoading(templateId);
-        try {
-            const res = await fetch(getApiPath("/api/demo"), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ templateId }),
-            });
-
-            if (!res.ok) throw new Error("Failed to create demo");
-
-            const data = await res.json();
-            router.push(`/editor/${data.projectId}`);
-        } catch (error) {
-            console.error(error);
-            alert("Failed to start demo. Please try again.");
-            setLoading(null);
-        }
+        createDemo.mutate({ templateId });
     };
 
     return (
         <div className="min-h-screen bg-background flex flex-col items-center py-20 px-4">
+            <TicketWindow />
+            <TicketFAB />
             <div className="max-w-4xl w-full space-y-8">
                 <div className="text-center space-y-4">
                     <h1 className="text-4xl font-bold tracking-tight">

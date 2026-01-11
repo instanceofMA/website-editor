@@ -1,81 +1,93 @@
-import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import fs from "fs/promises";
-import mime from "mime-types";
-import { getProjectsDir } from "@/lib/storage";
+import { type NextRequest, NextResponse } from "next/server";
+import { EngineManager } from "~/lib/engine-manager";
+import mime from "mime";
 
 export async function GET(
     req: NextRequest,
-    context: { params: Promise<{ projectId: string; path: string[] }> }
+    props: { params: Promise<{ projectId: string; path: string[] }> }
 ) {
-    const { projectId, path: filePathArray } = await context.params;
-
-    if (!projectId || !filePathArray || filePathArray.length === 0) {
-        return new NextResponse("Bad Request", { status: 400 });
-    }
-
-    // Construct file path
-    const projectRoot = path.join(getProjectsDir(), projectId);
-    const filePath = path.join(projectRoot, ...filePathArray);
-
-    // Security check: Ensure we don't traverse up
-    if (!filePath.startsWith(projectRoot)) {
-        return new NextResponse("Forbidden", { status: 403 });
-    }
-
     try {
-        const fileContent = await fs.readFile(filePath);
-        const contentType = mime.lookup(filePath) || "application/octet-stream";
+        const params = await props.params;
+        const { projectId, path } = params;
+        const filePath = path.join("/");
 
-        return new NextResponse(fileContent, {
-            headers: {
-                "Content-Type": contentType,
-            },
-        });
-    } catch (e) {
-        // Fallback: Try loading from templates (Stateless recovery for demos)
-        try {
-            const relativePath = filePathArray.join("/");
+        const engine = await EngineManager.detectEngine(projectId);
+        const fileBuffer = await engine.getFile(projectId, filePath);
 
-            // Try Static Template
-            const staticTemplatePath = path.join(
-                process.cwd(),
-                "src",
-                "templates",
-                "static",
-                relativePath
-            );
+        if (!fileBuffer) {
+            // Fallback: Try loading from templates (Stateless recovery for demos)
+            // This is critical for fresh demos that might not have all assets copied yet
             try {
-                const content = await fs.readFile(staticTemplatePath);
-                const contentType =
-                    mime.lookup(staticTemplatePath) ||
-                    "application/octet-stream";
-                return new NextResponse(content, {
-                    headers: { "Content-Type": contentType },
-                });
-            } catch {}
+                const fs = (await import("fs/promises")).default;
+                const pathModule = (await import("path")).default;
 
-            // Try Next.js Template
-            const nextTemplatePath = path.join(
-                process.cwd(),
-                "src",
-                "templates",
-                "nextjs",
-                relativePath
-            );
-            try {
-                const content = await fs.readFile(nextTemplatePath);
-                const contentType =
-                    mime.lookup(nextTemplatePath) || "application/octet-stream";
-                return new NextResponse(content, {
-                    headers: { "Content-Type": contentType },
-                });
-            } catch {}
-        } catch (templateError) {
-            // Ignore template lookup errors
+                // Try Static Template
+                const staticTemplatePath = pathModule.join(
+                    process.cwd(),
+                    "src",
+                    "templates",
+                    "static",
+                    filePath
+                );
+
+                try {
+                    const content = await fs.readFile(staticTemplatePath);
+                    const contentType =
+                        mime.getType(staticTemplatePath) ||
+                        "application/octet-stream";
+                    return new NextResponse(content, {
+                        headers: {
+                            "Content-Type": contentType,
+                            "Cache-Control":
+                                "public, max-age=0, must-revalidate",
+                        },
+                    });
+                } catch (e) {
+                    // Continue to next fallback
+                }
+
+                // Try Next.js Template
+                const nextTemplatePath = pathModule.join(
+                    process.cwd(),
+                    "src",
+                    "templates",
+                    "nextjs",
+                    filePath
+                );
+
+                try {
+                    const content = await fs.readFile(nextTemplatePath);
+                    const contentType =
+                        mime.getType(nextTemplatePath) ||
+                        "application/octet-stream";
+                    return new NextResponse(content, {
+                        headers: {
+                            "Content-Type": contentType,
+                            "Cache-Control":
+                                "public, max-age=0, must-revalidate",
+                        },
+                    });
+                } catch (e) {
+                    // Continue
+                }
+            } catch (templateError) {
+                console.warn("Template fallback failed", templateError);
+            }
+
+            return new NextResponse("File not found", { status: 404 });
         }
 
-        console.error(`Asset not found: ${filePath}`);
-        return new NextResponse("Not Found", { status: 404 });
+        const contentType =
+            mime.getType(filePath) || "application/octet-stream";
+
+        return new NextResponse(fileBuffer as unknown as BodyInit, {
+            headers: {
+                "Content-Type": contentType,
+                "Cache-Control": "public, max-age=0, must-revalidate", // No cache for editor
+            },
+        });
+    } catch (error) {
+        console.error("Asset Proxy Error:", error);
+        return new NextResponse("Internal Server Error", { status: 500 });
     }
 }

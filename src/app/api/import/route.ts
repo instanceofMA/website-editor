@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateProjectId } from "@/lib/utils";
-import { EngineManager } from "@/lib/engines/engine-manager";
+import { generateProjectId } from "~/lib/utils";
+import { EngineManager } from "~/lib/engine-manager";
 
 export async function POST(req: NextRequest) {
     try {

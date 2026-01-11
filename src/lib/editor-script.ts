@@ -1,156 +1,353 @@
 export const EDITOR_SCRIPT = `
 (function() {
-  console.log("Website Editor: Injected script active");
+    console.log("Website Editor: Injected script active (v2)");
 
-  // Styles for the focused element
-  const style = document.createElement('style');
-  style.textContent = \`
-    [data-editor-highlight] {
-      outline: 2px solid #0099ff !important;
-      cursor: default !important;
-    }
-    [data-editor-selected] {
-      outline: 2px solid #0099ff !important;
-      background: rgba(0, 153, 255, 0.1) !important;
-    }
-  \`;
-  document.head.appendChild(style);
+    class EditorRuntime {
+        constructor() {
+            this.selectedElement = null;
+            this.styleBlockId = "editor-generated-styles";
+            
+            // Check if running in iframe or standalone
+            this.isStandalone = window.self === window.top;
+            this.isPreview = this.isStandalone; // Default to preview mode if standalone
 
-  let selectedElement = null;
-  let isPreview = false;
+            if (this.isStandalone) {
+                console.log("Website Editor: Running in standalone mode");
+            }
 
-  document.addEventListener('mouseover', (e) => {
-    if (isPreview) return;
-    e.stopPropagation();
-    if(selectedElement && e.target === selectedElement) return;
-    // e.target.setAttribute('data-editor-highlight', 'true');
-  }, true);
+            this.initStyles();
+            this.bindEvents();
+            this.bindMessageListener();
+            this.broadcastHeight();
+            if (!this.isStandalone) {
+                this.scanClasses(); // Initial scan only if in editor
+            }
+        }
 
-  document.addEventListener('mouseout', (e) => {
-    if (isPreview) return;
-    e.stopPropagation();
-    // e.target.removeAttribute('data-editor-highlight');
-  }, true);
+        initStyles() {
+            // Highlighting styles
+            const style = document.createElement('style');
+            style.textContent = \`
+                [data-editor-highlight] {
+                    outline: 2px solid #0099ff !important;
+                    cursor: default !important;
+                }
+                [data-editor-selected] {
+                    outline: 2px solid #0099ff !important;
+                    background: rgba(0, 153, 255, 0.1) !important;
+                }
+            \`;
+            document.head.appendChild(style);
+        }
 
-  document.addEventListener('click', (e) => {
-    if (isPreview) {
-        // In preview mode, allow default behavior (link navigation etc)
-        // But we are in an iframe, so links might navigate the iframe.
-        return; 
-    }
+        bindEvents() {
+            // Hover effects
+            document.addEventListener('mouseover', (e) => {
+                if (this.isPreview) return;
+                e.preventDefault();
+                e.stopPropagation();
+            }, true);
 
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Remove previous selection
-    if (selectedElement) {
-      selectedElement.removeAttribute('data-editor-selected');
-    }
+            // Click selection
+            document.addEventListener('click', (e) => {
+                if (this.isPreview) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.selectElement(e.target);
+            }, true);
 
-    selectedElement = e.target;
-    selectedElement.setAttribute('data-editor-selected', 'true');
+            // Wheel / Scroll forwarding
+            window.addEventListener('wheel', (e) => {
+                if (this.isPreview) return;
+                e.preventDefault();
+                e.stopPropagation();
+                
+                window.parent.postMessage({
+                    type: 'IFRAME_WHEEL',
+                    deltaX: e.deltaX,
+                    deltaY: e.deltaY,
+                    ctrlKey: e.ctrlKey,
+                    metaKey: e.metaKey
+                }, '*');
+            }, { passive: false });
 
-    // Send info to parent
-    window.parent.postMessage({
-      type: 'ELEMENT_SELECTED',
-      tagName: selectedElement.tagName,
-      textContent: selectedElement.innerText,
-      id: selectedElement.id,
-      className: selectedElement.className,
-      href: selectedElement.getAttribute('href') || undefined
-    }, '*');
-  }, true);
+            // Keyboard blocks
+            window.addEventListener('keydown', (e) => {
+                if (this.isPreview) return;
+                if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '-' || e.key === '0')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }, true);
 
-  // Listen for messages from parent
-  window.addEventListener('message', (event) => {
-    if (!event.data) return;
+            // Resize observer
+            const observer = new ResizeObserver(() => this.broadcastHeight());
+            if(document.body) observer.observe(document.body);
+        }
 
-    if (event.data.type === 'TOGGLE_PREVIEW') {
-        isPreview = event.data.value;
-        // Clear selection when entering preview
-        if (isPreview && selectedElement) {
-             selectedElement.removeAttribute('data-editor-selected');
-             selectedElement = null;
+        bindMessageListener() {
+            window.addEventListener('message', (event) => {
+                if (!event.data) return;
+                try {
+                    this.handleMessage(event.data);
+                } catch (e) {
+                    console.warn("Editor Script: Message handling failed", e);
+                }
+            });
+        }
+
+        handleMessage(data) {
+            switch(data.type) {
+                case 'TOGGLE_PREVIEW':
+                    this.isPreview = data.value;
+                    if (this.isPreview && this.selectedElement) {
+                        this.selectedElement.removeAttribute('data-editor-selected');
+                        this.selectedElement = null;
+                    }
+                    break;
+                case 'UPDATE_TEXT':
+                    if (this.selectedElement) this.selectedElement.innerText = data.value;
+                    break;
+                case 'UPDATE_ATTRIBUTE':
+                    if (this.selectedElement) this.selectedElement.setAttribute(data.attribute, data.value);
+                    break;
+                case 'UPDATE_STYLE':
+                    if (this.selectedElement) {
+                        this.selectedElement.style.setProperty(data.property, data.value);
+                        // Resend selection to update computed values in UI (optimistic check + confirmation)
+                        setTimeout(() => this.selectElement(this.selectedElement), 0);
+                    }
+                    break;
+                case 'UPDATE_CLASS':
+                    if (this.selectedElement) {
+                        this.selectedElement.className = data.className;
+                        this.scanClasses(); // Re-scan as classes might use new combinations?
+                        setTimeout(() => this.selectElement(this.selectedElement), 0);
+                    }
+                    break;
+                case 'UPDATE_CSS_RULE':
+                    this.updateCssRule(data.selector, data.property, data.value);
+                    // Force refresh to catch CSS rule changes
+                    if (this.selectedElement && this.selectedElement.matches(data.selector)) {
+                        setTimeout(() => this.selectElement(this.selectedElement), 0);
+                    }
+                    break;
+                case 'REQUEST_STYLES':
+                    const styleEl = document.getElementById(this.styleBlockId);
+                    window.parent.postMessage({
+                        type: 'STYLES_GENERATED',
+                        css: styleEl ? styleEl.textContent : ""
+                    }, '*');
+                    break;
+                case 'REQUEST_HTML':
+                    // We need the full HTML, but we might want to strip our editor script/styles if we were doing a "clean" export.
+                    // For now, we send the raw outerHTML and let the host clean it or use it as is (for persistence).
+                    window.parent.postMessage({
+                        type: 'HTML_GENERATED',
+                        html: document.documentElement.outerHTML
+                    }, '*');
+                    break;
+            }
+        }
+
+        selectElement(element) {
+            if (this.selectedElement) {
+                this.selectedElement.removeAttribute('data-editor-selected');
+            }
+            this.selectedElement = element;
+            this.selectedElement.setAttribute('data-editor-selected', 'true');
+
+            // Compute Styles
+            const computed = window.getComputedStyle(element);
+            const explicit = element.style; // CSSStyleDeclaration
+
+            // Helper to get computed value
+            const getComp = (prop) => computed.getPropertyValue(prop);
+            
+            // Map relevant styles
+            const styles = {
+                // Typography
+                color: getComp('color'),
+                fontSize: getComp('font-size'),
+                fontWeight: getComp('font-weight'),
+                fontFamily: getComp('font-family'),
+                textAlign: getComp('text-align'),
+                lineHeight: getComp('line-height'),
+                letterSpacing: getComp('letter-spacing'),
+                textDecoration: getComp('text-decoration-line'),
+
+                // Spacing & Layout
+                display: getComp('display'),
+                flexDirection: getComp('flex-direction'),
+                justifyContent: getComp('justify-content'),
+                alignItems: getComp('align-items'),
+                flexWrap: getComp('flex-wrap'),
+                gap: getComp('gap'),
+                
+                marginTop: getComp('margin-top'),
+                marginRight: getComp('margin-right'),
+                marginBottom: getComp('margin-bottom'),
+                marginLeft: getComp('margin-left'),
+                
+                paddingTop: getComp('padding-top'),
+                paddingRight: getComp('padding-right'),
+                paddingBottom: getComp('padding-bottom'),
+                paddingLeft: getComp('padding-left'),
+
+                // Size
+                width: getComp('width'),
+                height: getComp('height'),
+                minWidth: getComp('min-width'),
+                minHeight: getComp('min-height'),
+                maxWidth: getComp('max-width'),
+                maxHeight: getComp('max-height'),
+                overflow: getComp('overflow'),
+
+                // Position
+                position: getComp('position'),
+                zIndex: getComp('z-index'),
+                top: getComp('top'),
+                right: getComp('right'),
+                bottom: getComp('bottom'),
+                left: getComp('left'),
+
+                // Visuals
+                backgroundColor: getComp('background-color'),
+                opacity: getComp('opacity'),
+                borderRadius: getComp('border-radius'), // simplified
+                borderWidth: getComp('border-width'),
+                borderColor: getComp('border-color'),
+                borderStyle: getComp('border-style'),
+                boxShadow: getComp('box-shadow'),
+                cursor: getComp('cursor'),
+            };
+
+            // Explicit Styles check
+            // Convert kebab-case (CSS) to camelCase (JS) to match 'styles' object keys
+            const toCamelCase = (s) => s.replace(/-./g, x => x[1].toUpperCase());
+            const explicitStyle = {};
+            for (let i = 0; i < explicit.length; i++) {
+                const prop = explicit[i]; // e.g. "margin-left"
+                const val = explicit.getPropertyValue(prop);
+                explicitStyle[toCamelCase(prop)] = val;
+                // Also keep kebab-case just in case some panels query it directly (though mostly they use camel)
+                explicitStyle[prop] = val;
+            }
+
+            // Robust LID lookup: Traverse up if current element has no LID
+            let lid = element.getAttribute('data-lid');
+            if (!lid) {
+                const closest = element.closest('[data-lid]');
+                if (closest) {
+                    lid = closest.getAttribute('data-lid');
+                }
+            }
+
+            // Calculate context rects for relative units
+            const parent = element.parentElement;
+            const parentRect = parent ? {
+                width: parent.getBoundingClientRect().width,
+                height: parent.getBoundingClientRect().height
+            } : { width: 0, height: 0 };
+            
+            const viewportRect = {
+                width: window.innerWidth,
+                height: window.innerHeight
+            };
+
+            window.parent.postMessage({
+                type: 'ELEMENT_SELECTED',
+                tagName: element.tagName,
+                textContent: element.innerText,
+                id: element.id,
+                className: element.className,
+                href: element.getAttribute('href') || undefined,
+                lid: lid || undefined,
+                parentRect: parentRect,
+                viewportRect: viewportRect,
+                styles: styles,
+                explicitStyle: explicitStyle
+            }, '*');
+        }
+
+        updateCssRule(selector, property, value) {
+            // Find or create our style block
+            let styleSheet = document.getElementById(this.styleBlockId);
+            if (!styleSheet) {
+                const styleEl = document.createElement('style');
+                styleEl.id = this.styleBlockId;
+                document.head.appendChild(styleEl);
+                styleSheet = styleEl;
+            }
+            
+            const sheet = styleSheet.sheet;
+            const rules = sheet.cssRules || sheet.rules;
+            
+            // Check if rule exists
+            let ruleIndex = -1;
+            for (let i = 0; i < rules.length; i++) {
+                if (rules[i].selectorText === selector) {
+                    ruleIndex = i;
+                    break;
+                }
+            }
+
+            if (ruleIndex !== -1) {
+                // Update existing
+                rules[ruleIndex].style.setProperty(property, value);
+            } else {
+                // Create new rule
+                // We typically need to set the property after insertion
+                // Use string concatenation to avoid template literal escaping issues during injection
+                const rule = selector + " { " + property + ": " + value + "; }";
+                try {
+                    sheet.insertRule(rule, rules.length);
+                } catch (e) {
+                    console.warn("Failed to insert rule:", rule, e);
+                }
+            }
+        }
+
+        scanClasses() {
+            const classes = new Set();
+            // Scan all stylesheets
+            // Note: Accessing cross-origin sheets might block this
+            try {
+                for (const sheet of document.styleSheets) {
+                    try {
+                        for (const rule of sheet.cssRules) {
+                            if (rule.type === 1 && rule.selectorText) { // STYLE_RULE
+                                // Extract class names from selector
+                                const matches = rule.selectorText.match(/\\.[a-zA-Z0-9_-]+/g);
+                                if (matches) {
+                                    matches.forEach(cls => classes.add(cls.substring(1)));
+                                }
+                            }
+                        }
+                    } catch (e) {
+                         // Likely CORS access to stylesheet
+                        console.warn("Skipping stylesheet scan", e);
+                    }
+                }
+            } catch (e) {}
+
+            window.parent.postMessage({
+                type: 'AVAILABLE_CLASSES',
+                classes: Array.from(classes)
+            }, '*');
+        }
+
+        broadcastHeight() {
+            const height = document.documentElement.scrollHeight;
+            window.parent.postMessage({ type: 'CONTENT_RESIZE', height }, '*');
         }
     }
 
-    if (event.data.type === 'UPDATE_TEXT') {
-       if (selectedElement) {
-         selectedElement.innerText = event.data.value;
-       }
+    // Initialize logic when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => new EditorRuntime());
+    } else {
+        new EditorRuntime();
     }
-
-    if (event.data.type === 'UPDATE_ATTRIBUTE') {
-       if (selectedElement) {
-         selectedElement.setAttribute(event.data.attribute, event.data.value);
-       }
-    }
-  });
-
-  // Forward ALL Wheel events to parent for Canvas Panning/Zooming
-  // Since the iframe is full-height, it has no internal scroll. All scroll gestures should pan the canvas.
-  window.addEventListener('wheel', (e) => {
-       if (isPreview) return; // Allow native scroll in preview
-       
-       // CRITICAL: Prevent browser native zoom (Ctrl+Wheel) and swipe navigation
-       e.preventDefault();
-       e.stopPropagation();
-       e.stopImmediatePropagation();
-
-       window.parent.postMessage({
-           type: 'IFRAME_WHEEL',
-           deltaX: e.deltaX,
-           deltaY: e.deltaY,
-           ctrlKey: e.ctrlKey,
-           metaKey: e.metaKey
-       }, '*');
-  }, { passive: false });
-
-  // Broadcast content height for "Full Height" canvas
-  const sendHeight = () => {
-      const height = document.documentElement.scrollHeight;
-      window.parent.postMessage({
-          type: 'CONTENT_RESIZE',
-          height: height
-      }, '*');
-  };
-
-  // Prevent keyboard zoom shortcuts
-  window.addEventListener('keydown', (e) => {
-      if (isPreview) return; // Allow shortcuts in preview
-      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '-' || e.key === '0')) {
-          e.preventDefault();
-          e.stopPropagation();
-      }
-  }, true);
-
-  // Prevent native browser zoom (pinch) inside iframe
-  const preventDefault = (e) => {
-      if (isPreview) return; // Allow gestures in preview
-      e.preventDefault();
-      e.stopPropagation();
-  };
-  document.addEventListener("gesturestart", preventDefault);
-  document.addEventListener("gesturechange", preventDefault);
-  document.addEventListener("gestureend", preventDefault);
-
-  window.addEventListener('load', sendHeight);
-  window.addEventListener('resize', sendHeight);
-  const observer = new ResizeObserver(sendHeight);
-  
-  // Ensure body exists before observing (critical for static sites where script is in head)
-  const observeBody = () => { 
-      if (document.body) {
-          observer.observe(document.body); 
-          sendHeight();
-      }
-  };
-
-  if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', observeBody);
-  } else {
-      observeBody();
-  }
-
 })();
 `;

@@ -5,6 +5,13 @@ export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
+export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
+
+export function getApiPath(path: string) {
+    if (path.startsWith("/")) return `${BASE_PATH}${path}`;
+    return `${BASE_PATH}/${path}`;
+}
+
 const ADJECTIVES = [
     "cool",
     "super",
@@ -29,13 +36,6 @@ const NOUNS = [
     "blog",
     "space",
 ];
-
-export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
-
-export function getApiPath(path: string) {
-    if (path.startsWith("/")) return `${BASE_PATH}${path}`;
-    return `${BASE_PATH}/${path}`;
-}
 
 export function generateProjectId(): string {
     const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];

@@ -8,49 +8,25 @@ import {
     X as CloseIcon,
     ChevronDown,
 } from "lucide-react";
-import { useForm, SubmitHandler } from "react-hook-form";
+import { useForm, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import clsx from "clsx";
+import { TicketSchema, type TicketFormInputs } from "./schemas";
 import { useTicket } from "./ticket-context";
 import { ClassicSelect } from "./classic-select";
 import { Controller } from "react-hook-form";
+import { api } from "~/trpc/react";
 
 // --- Schema Definition ---
-const ticketSchema = z
-    .object({
-        name: z.string().optional(),
-        email: z.string().email({ message: "Invalid email address" }),
-        company: z.string().optional(),
-        title: z.string().min(1, "Title is required"),
-        category: z.enum(["Bug", "Feature Request", "Question", "Other"]),
-        area: z.string().min(1, "Area is required"),
-        areaOther: z.string().optional(),
-        description: z
-            .string()
-            .min(10, "Description must be at least 10 characters"),
-    })
-    .refine(
-        (data) => {
-            if (data.area === "Other" && !data.areaOther) {
-                return false;
-            }
-            return true;
-        },
-        {
-            message: "Please specify the area",
-            path: ["areaOther"],
-        }
-    );
-
-type TicketFormInputs = z.infer<typeof ticketSchema>;
+// Schema is now imported from ./schemas.ts
 
 export function TicketWindow() {
     const { isOpen, isMinimized, closeTicket, minimizeTicket } = useTicket();
     const [isMaximized, setIsMaximized] = useState(false);
     const [files, setFiles] = useState<File[]>([]);
     const [submitStatus, setSubmitStatus] = useState<
-        "idle" | "success" | "error"
+        "idle" | "loading" | "success" | "error"
     >("idle");
 
     const [submittedCategory, setSubmittedCategory] = useState<string | null>(
@@ -66,7 +42,7 @@ export function TicketWindow() {
         control,
         formState: { errors, isSubmitting },
     } = useForm<TicketFormInputs>({
-        resolver: zodResolver(ticketSchema),
+        resolver: zodResolver(TicketSchema),
         defaultValues: {
             category: "Bug",
             area: "Editor Interface", // Default
@@ -116,38 +92,68 @@ export function TicketWindow() {
         setFiles((prev) => prev.filter((_, i) => i !== index));
     };
 
-    const onSubmit: SubmitHandler<TicketFormInputs> = async (data) => {
-        setSubmitStatus("idle");
+    /* ... */
 
-        const formData = new FormData();
-        // Append all text fields
-        Object.entries(data).forEach(([key, value]) => {
-            if (value) formData.append(key, value);
-        });
-
-        // Append files
-        files.forEach((file) => {
-            formData.append("attachments", file);
-        });
-
-        try {
-            const response = await fetch("/api/tickets", {
-                method: "POST",
-                body: formData,
-            });
-
-            if (!response.ok) {
-                throw new Error("Failed to submit ticket");
-            }
-
+    /* ... */
+    const createTicket = api.ticket.create.useMutation({
+        onSuccess: (data) => {
+            console.log("Ticket created", data.cardId);
             setSubmittedCategory(
                 data.category === "Bug" ? "Bug Report" : data.category
             );
             setSubmitStatus("success");
             reset();
             setFiles([]);
+        },
+        onError: (e) => {
+            console.error("Failed to create ticket", e);
+            setSubmitStatus("error");
+            // In a real app, use toast.error(e.message)
+        },
+    });
+
+    const onSubmit: SubmitHandler<TicketFormInputs> = async (data) => {
+        setSubmitStatus("loading");
+
+        try {
+            // 1. Create Ticket (Metadata only)
+            const ticketResult = await createTicket.mutateAsync({
+                ...data, // attachments are optional/undefined in base schema now
+            });
+
+            const { cardId } = ticketResult;
+
+            // 2. Upload Files (if any)
+            if (files.length > 0) {
+                await Promise.all(
+                    files.map(async (file) => {
+                        const formData = new FormData();
+                        formData.append("file", file);
+                        formData.append("cardId", cardId);
+
+                        const res = await fetch("/api/ticket/upload", {
+                            method: "POST",
+                            body: formData,
+                        });
+
+                        if (!res.ok) {
+                            console.error(`Failed to upload ${file.name}`);
+                        }
+                    })
+                );
+            }
+
+            // 3. Success State
+            setSubmittedCategory(
+                ticketResult.category === "Bug"
+                    ? "Bug Report"
+                    : ticketResult.category
+            );
+            setSubmitStatus("success");
+            reset();
+            setFiles([]);
         } catch (error) {
-            console.error(error);
+            console.error("Error submitting ticket", error);
             setSubmitStatus("error");
         }
     };
@@ -575,7 +581,7 @@ export function TicketWindow() {
                                                                                     i
                                                                                 )
                                                                             }
-                                                                            className="text-red-600 hover:text-red-800 font-bold px-1"
+                                                                            className="text-red-600 hover:text-red-800 font-bold px-1 cursor-pointer"
                                                                         >
                                                                             [DEL]
                                                                         </button>
