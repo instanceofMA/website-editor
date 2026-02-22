@@ -133,7 +133,10 @@ export const projectRouter = createTRPCRouter({
                 // Map requested template to physical directory
                 let templateDir = "static";
                 if (input.templateId === "nextjs-tailwind") {
-                    templateDir = "nextjs";
+                    templateDir = "nextjs-tailwind";
+                }
+                if (input.templateId === "click") {
+                    templateDir = "click";
                 }
 
                 const dirToRead = path.join(
@@ -158,7 +161,11 @@ export const projectRouter = createTRPCRouter({
                     data: {
                         id: projectId,
                         name: projectName,
-                        stack: templateDir === "nextjs" ? "NEXTJS" : "STATIC",
+                        stack:
+                            templateDir === "nextjs-tailwind" ||
+                            templateDir === "click"
+                                ? "NEXTJS"
+                                : "STATIC",
                         files: webContainerTree,
                     },
                 });

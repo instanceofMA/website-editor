@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import {
     ArrowRight,
     Check,
@@ -15,33 +14,10 @@ import {
     Sparkles,
     Upload,
 } from "lucide-react";
-import { Button } from "~/components/ui/button";
-import { api } from "~/trpc/react";
-import { cn } from "~/lib/utils";
-import { TicketFAB, TicketWindow } from "~/features/ticket-widget";
+import { cn } from "../lib/utils";
 
 export default function LandingPage() {
-    const router = useRouter();
     const [scrolled, setScrolled] = useState(false);
-    const [isLaunching, setIsLaunching] = useState(false);
-
-    // Create demo project mutation
-    const createDemo = api.project.createDemo.useMutation({
-        onSuccess: (data) => {
-            router.push(`/editor/${data.projectId}`);
-        },
-        onError: (e) => {
-            console.error(e);
-            setIsLaunching(false);
-            alert(`Failed to launch editor: ${e.message}`);
-        },
-    });
-
-    const handleLaunch = () => {
-        setIsLaunching(true);
-        // We use nextjs template for the "impressive" launch
-        createDemo.mutate({ templateId: "click" });
-    };
 
     useEffect(() => {
         const handleScroll = () => {
@@ -79,67 +55,7 @@ export default function LandingPage() {
             </div>
 
             {/* Grid Overlay */}
-            <div className="fixed inset-0 pointer-events-none z-0 opacity-[0.03] bg-[linear-gradient(to_right,#000_1px,transparent_1px),linear-gradient(to_bottom,#000_1px,transparent_1px)] bg-[size:50px_50px]" />
-
-            {/* Launch Overlay */}
-            {isLaunching && (
-                <div className="fixed inset-0 z-[1000] bg-white flex flex-col items-center justify-center p-6 animate-in fade-in duration-700">
-                    <div className="w-full max-w-sm flex flex-col gap-8">
-                        <div className="flex flex-col gap-2">
-                            <div className="flex justify-between items-end mb-1">
-                                <Image
-                                    src="/click-logo.png"
-                                    alt="Click_"
-                                    width={100}
-                                    height={28}
-                                    className="h-7 w-auto object-contain mix-blend-multiply"
-                                />
-                                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-400 animate-pulse">
-                                    Engine v0.4.12
-                                </span>
-                            </div>
-                            <div className="relative h-1 bg-neutral-100 overflow-hidden">
-                                <div className="absolute inset-0 bg-black animate-scan origin-left" />
-                            </div>
-                        </div>
-
-                        <div className="bg-neutral-50 p-6 font-mono text-[10px] leading-relaxed border border-neutral-100 flex flex-col gap-1.5 min-h-[160px]">
-                            <div className="flex gap-2">
-                                <span className="text-neutral-300">01</span>
-                                <span className="text-black/80">
-                                    initializing_wasm_bridge()... [SUCCESS]
-                                </span>
-                            </div>
-                            <div className="flex gap-2 animate-[reveal_0.4s_ease-out_forwards] opacity-0 [animation-delay:0.5s]">
-                                <span className="text-neutral-300">02</span>
-                                <span className="text-black/80">
-                                    mounting_virtual_fs(projectId:{" "}
-                                    {createDemo.data?.projectId || "..."})
-                                </span>
-                            </div>
-                            <div className="flex gap-2 animate-[reveal_0.4s_ease-out_forwards] opacity-0 [animation-delay:1.2s]">
-                                <span className="text-neutral-300">03</span>
-                                <span className="text-black/80">
-                                    starting_dev_server(adapter: "nextjs")
-                                </span>
-                            </div>
-                            <div className="flex gap-2 animate-[reveal_0.4s_ease-out_forwards] opacity-0 [animation-delay:2s]">
-                                <span className="text-neutral-300">04</span>
-                                <span className="text-black/80 italic animate-pulse">
-                                    waiting_for_first_compile...
-                                </span>
-                            </div>
-                            <div className="mt-auto text-neutral-400 text-[9px] uppercase tracking-widest text-center">
-                                Redirecting to editor...
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Background decorations for "Acid" monochrome feel */}
-                    <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-black/2 blur-[120px] rounded-full -z-10" />
-                    <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-black/2 blur-[120px] rounded-full -z-10" />
-                </div>
-            )}
+            <div className="fixed inset-0 pointer-events-none z-0 opacity-[0.03] bg-[linear-gradient(to_right,#000_1px,transparent_1px),linear-gradient(to_bottom,#000_1px,transparent_1px)] bg-size-[50px_50px]" />
 
             {/* Navigation */}
             <header
@@ -180,20 +96,12 @@ export default function LandingPage() {
                     </nav>
 
                     <div className="flex items-center gap-4">
-                        <Link href="/import">
-                            <Button
-                                variant="ghost"
-                                className="text-sm rounded-none border-b border-transparent hover:border-black hover:bg-transparent hidden sm:flex items-center gap-2"
-                            >
-                                <Upload className="w-4 h-4" /> Import Project
-                            </Button>
-                        </Link>
-                        <Button
-                            onClick={handleLaunch}
-                            className="bg-black text-white hover:bg-neutral-800 rounded-none px-6 h-10 font-medium"
-                        >
+                        <button className="text-sm rounded-none border-b border-transparent hover:border-black hover:bg-transparent hidden sm:flex items-center gap-2 px-4 py-2">
+                            <Upload className="w-4 h-4" /> Import Project
+                        </button>
+                        <button className="bg-black text-white hover:bg-neutral-800 rounded-none px-6 h-10 font-medium">
                             Get Access
-                        </Button>
+                        </button>
                     </div>
                 </div>
             </header>
@@ -210,7 +118,10 @@ export default function LandingPage() {
                                 </span>
                             </div>
 
-                            <h1 className="font-heading text-6xl md:text-8xl font-bold tracking-tight leading-[0.95] reveal">
+                            <h1
+                                className="font-heading text-6xl md:text-8xl font-bold tracking-tight leading-[0.95] reveal"
+                                data-lid="hero-title"
+                            >
                                 The Headless
                                 <br />
                                 Editor for
@@ -218,49 +129,36 @@ export default function LandingPage() {
                                 Developers.
                             </h1>
 
-                            <p className="text-xl text-neutral-500 max-w-lg leading-relaxed reveal">
+                            <p
+                                className="text-xl text-neutral-500 max-w-lg leading-relaxed reveal"
+                                data-lid="hero-description"
+                            >
                                 A "Zero Runtime" visual workspace that maps
                                 directly to your code. No bloat. No lock-in.
                                 100% Git-synced.
                             </p>
 
                             <div className="flex flex-wrap gap-4 pt-4 reveal">
-                                <Button
-                                    size="lg"
-                                    onClick={handleLaunch}
-                                    className="bg-black text-white hover:bg-neutral-800 h-14 px-8 rounded-none text-base group"
-                                >
+                                <button className="bg-black text-white hover:bg-neutral-800 h-14 px-8 rounded-none text-base group inline-flex items-center justify-center font-medium">
                                     Launch Live Editor
                                     <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
-                                </Button>
+                                </button>
 
                                 <div className="flex gap-2">
-                                    <Link href="/import">
-                                        <Button
-                                            variant="outline"
-                                            size="lg"
-                                            className="h-14 px-6 rounded-none border-neutral-200 text-sm font-semibold flex items-center gap-2"
-                                        >
-                                            <Upload className="w-4 h-4" /> Start
-                                            Importing
-                                        </Button>
-                                    </Link>
-                                    <Link href="/demo">
-                                        <Button
-                                            variant="outline"
-                                            size="lg"
-                                            className="h-14 px-6 rounded-none border-neutral-200 text-sm font-semibold flex items-center gap-2"
-                                        >
-                                            <Sparkles className="w-4 h-4 text-yellow-500" />{" "}
-                                            Demo Templates
-                                        </Button>
-                                    </Link>
+                                    <button className="h-14 px-6 rounded-none border border-neutral-200 text-sm font-semibold flex items-center gap-2 bg-white hover:bg-neutral-50 transition-colors">
+                                        <Upload className="w-4 h-4" /> Start
+                                        Importing
+                                    </button>
+                                    <button className="h-14 px-6 rounded-none border border-neutral-200 text-sm font-semibold flex items-center gap-2 bg-white hover:bg-neutral-50 transition-colors">
+                                        <Sparkles className="w-4 h-4 text-yellow-500" />{" "}
+                                        Demo Templates
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
                         <div className="relative reveal">
-                            <div className="relative aspect-[4/3] w-full bg-white border border-neutral-100 shadow-2xl overflow-hidden group">
+                            <div className="relative aspect-4/3 w-full bg-white border border-neutral-100 shadow-2xl overflow-hidden group">
                                 <Image
                                     src="/hero.png"
                                     alt="Click_ Editor Preview"
@@ -500,19 +398,18 @@ export default function LandingPage() {
                             <br />
                             without limits?
                         </h2>
-                        <p className="text-xl text-neutral-500 max-w-lg mx-auto">
+                        <p
+                            className="text-xl text-neutral-500 max-w-lg mx-auto"
+                            data-lid="footer-cta-text"
+                        >
                             Join 500+ teams building the future of the web with
                             Click_. Start for free today.
                         </p>
                         <div className="flex flex-col items-center gap-6">
-                            <Button
-                                size="lg"
-                                onClick={handleLaunch}
-                                className="bg-black text-white hover:bg-neutral-800 h-16 px-12 rounded-none text-lg group"
-                            >
+                            <button className="bg-black text-white hover:bg-neutral-800 h-16 px-12 rounded-none text-lg group inline-flex items-center justify-center font-medium">
                                 Start Your Project
                                 <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
-                            </Button>
+                            </button>
                             <p className="font-mono text-[10px] uppercase tracking-widest text-neutral-400">
                                 No Credit Card Required • Instant Deployment
                             </p>
@@ -530,9 +427,9 @@ export default function LandingPage() {
                                 <Image
                                     src="/click-logo.png"
                                     alt="Click_"
-                                    width={100}
-                                    height={28}
-                                    className="h-7 w-auto object-contain mix-blend-multiply"
+                                    width={110}
+                                    height={32}
+                                    className="h-8 w-auto object-contain mix-blend-multiply"
                                 />
                             </div>
                             <p className="text-neutral-500 max-w-xs">
@@ -593,42 +490,6 @@ export default function LandingPage() {
                     </div>
                 </div>
             </footer>
-
-            <style jsx global>{`
-                @keyframes scan {
-                    0% {
-                        transform: translateX(-100%);
-                    }
-                    100% {
-                        transform: translateX(100%);
-                    }
-                }
-
-                .font-heading {
-                    font-family: var(--font-outfit), sans-serif;
-                }
-
-                .reveal {
-                    animation: revealUp 0.8s cubic-bezier(0.16, 1, 0.3, 1)
-                        forwards;
-                    opacity: 0;
-                }
-
-                @keyframes revealUp {
-                    from {
-                        opacity: 0;
-                        transform: translateY(40px);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
-                }
-            `}</style>
-
-            {/* Ticket Widget */}
-            <TicketFAB />
-            <TicketWindow />
         </div>
     );
 }

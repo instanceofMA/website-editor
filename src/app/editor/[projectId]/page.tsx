@@ -281,6 +281,8 @@ export default function EditorPage() {
             },
         );
 
+    const [showDebugLogs, setShowDebugLogs] = useState(false);
+
     const {
         isBooted,
         isServerReady,
@@ -289,6 +291,7 @@ export default function EditorPage() {
         webcontainerInstance,
         bootProgress,
         bootStatus,
+        logs,
     } = useWebContainer(projectData?.files as any, projectData?.stack);
 
     useEffect(() => {
@@ -755,6 +758,67 @@ export default function EditorPage() {
                                             {bootStatus}
                                         </div>
                                     </div>
+                                    {/* Terminal Logs Display Toggle */}
+                                    {logs.length > 0 && (
+                                        <div className="mt-6 flex flex-col items-center gap-3 w-full animate-in fade-in duration-1000">
+                                            <button
+                                                onClick={() =>
+                                                    setShowDebugLogs(
+                                                        !showDebugLogs,
+                                                    )
+                                                }
+                                                className="text-[9px] uppercase font-bold tracking-[0.2em] text-muted-foreground/40 hover:text-foreground transition-colors py-1.5 px-4 rounded-full border border-border/40 hover:border-border/80 flex items-center gap-2 bg-background/50 backdrop-blur-sm"
+                                            >
+                                                {showDebugLogs
+                                                    ? "Hide Terminal View"
+                                                    : "Open Terminal View"}
+                                                <div
+                                                    className={`w-1 h-1 rounded-full ${showDebugLogs ? "bg-green-500 animate-pulse" : "bg-muted-foreground/30"}`}
+                                                />
+                                            </button>
+
+                                            {showDebugLogs && (
+                                                <div className="p-5 bg-secondary/20 rounded-xl border border-border/40 font-mono text-[10px] text-muted-foreground/70 overflow-hidden flex flex-col w-full max-w-[700px] animate-in fade-in zoom-in-95 duration-500 shadow-xl backdrop-blur-md">
+                                                    <div className="flex border-b border-border/20 pb-2 mb-1 justify-between items-center opacity-50 shrink-0">
+                                                        <span className="text-[8px] uppercase tracking-widest">
+                                                            Active System Logs
+                                                        </span>
+                                                        <span className="text-[8px]">
+                                                            v0.4.12
+                                                        </span>
+                                                    </div>
+                                                    <div
+                                                        className="flex flex-col gap-2 overflow-y-auto max-h-[300px] pr-2 scrollbar-thin scrollbar-thumb-muted-foreground/10 hover:scrollbar-thumb-muted-foreground/20"
+                                                        ref={(el) => {
+                                                            if (el)
+                                                                el.scrollTop =
+                                                                    el.scrollHeight;
+                                                        }}
+                                                    >
+                                                        {logs.map((log, i) => (
+                                                            <div
+                                                                key={i}
+                                                                className="break-all opacity-0 animate-[reveal_0.3s_ease-out_forwards] leading-relaxed"
+                                                                style={{
+                                                                    animationDelay: `${i * 0.03}s`,
+                                                                }}
+                                                            >
+                                                                <span className="text-muted-foreground/20 mr-3 select-none">
+                                                                    {String(
+                                                                        i + 1,
+                                                                    ).padStart(
+                                                                        2,
+                                                                        "0",
+                                                                    )}
+                                                                </span>
+                                                                {log}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

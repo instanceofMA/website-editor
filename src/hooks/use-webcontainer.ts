@@ -20,6 +20,35 @@ const getWebContainerInstance = async () => {
     return global.__webcontainerBootPromise;
 };
 
+// Helper to recursively process the file tree and decode base64 binary files
+function processFileSystemTree(tree: any): any {
+    const processed: any = {};
+    for (const key in tree) {
+        const item = tree[key];
+        if (item.directory) {
+            processed[key] = {
+                directory: processFileSystemTree(item.directory),
+            };
+        } else if (item.file) {
+            let contents = item.file.contents;
+            if (item.file.encoding === "base64") {
+                const binaryString = atob(contents);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                contents = bytes;
+            }
+            processed[key] = {
+                file: {
+                    contents,
+                },
+            };
+        }
+    }
+    return processed;
+}
+
 export function useWebContainer(
     fileTreeJSON: any | null,
     stack: string | undefined, // "nextjs" | "angular" | "static"
@@ -33,7 +62,31 @@ export function useWebContainer(
     const [bootProgress, setBootProgress] = useState(0);
     const [bootStatus, setBootStatus] = useState("Initializing...");
     const [isFirstCompileDone, setIsFirstCompileDone] = useState(false);
+    const [logs, setLogs] = useState<string[]>([]);
     const hasBootedRef = useRef(false);
+
+    const appendLog = (msg: string) => {
+        // Basic ANSI stripping
+        const clean = msg
+            .replace(/\x1B\[[0-9;]*[A-Za-z]/g, "") // Strip most ANSI ESC sequences
+            .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, "") // Strip non-printable control chars except \n
+            .trim();
+
+        // Only skip completely empty or extremely short noise
+        if (!clean || clean === "$" || clean.length < 2) return;
+
+        // Skip the very repetitive pnpm progress lines if they don't contain real info
+        if (clean.includes("Progress: resolved") && !clean.includes("added")) {
+            // We can skip these to keep the log "clean", but let's allow "added" or "reused" summaries
+            if (clean.length < 40) return;
+        }
+
+        setLogs((prev) => {
+            const lastLog = prev[prev.length - 1];
+            if (lastLog === clean) return prev;
+            return [...prev.slice(-19), clean];
+        });
+    };
 
     useEffect(() => {
         if (!fileTreeJSON || hasBootedRef.current) return;
@@ -55,7 +108,8 @@ export function useWebContainer(
                 // 2. Mount the file system
                 setBootStatus("Mounting files...");
                 setBootProgress(15);
-                await inst.mount(fileTreeJSON);
+                const processedTree = processFileSystemTree(fileTreeJSON);
+                await inst.mount(processedTree);
                 if (!active) return;
                 setIsBooted(true);
 
@@ -143,6 +197,14 @@ export function useWebContainer(
                     );
                     processes.push(installProcess);
 
+                    installProcess.output.pipeTo(
+                        new WritableStream({
+                            write(data) {
+                                appendLog(data);
+                            },
+                        }),
+                    );
+
                     // Minor progress bumps during install to show it's alive
                     const installProgressInterval = setInterval(() => {
                         setBootProgress((prev) =>
@@ -180,6 +242,7 @@ export function useWebContainer(
                     devProcess.output.pipeTo(
                         new WritableStream({
                             write(data) {
+                                appendLog(data);
                                 if (
                                     data.includes("ready") ||
                                     data.includes("Started")
@@ -208,7 +271,9 @@ export function useWebContainer(
                     await inst.fs.writeFile("server.js", STATIC_SERVER_CONTENT);
                     const devProcess = await inst.spawn("node", ["server.js"]);
                     processes.push(devProcess);
-                    setBootProgress(90);
+                    setBootStatus("Ready!");
+                    setBootProgress(100);
+                    setIsFirstCompileDone(true);
                 }
             } catch (err: any) {
                 if (active) {
@@ -241,5 +306,6 @@ export function useWebContainer(
         webcontainerInstance,
         bootProgress,
         bootStatus,
+        logs,
     };
 }

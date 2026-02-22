@@ -1,10 +1,7 @@
-import "~/styles/globals.css";
-
+import Script from "next/script";
+import "../styles/globals.css";
 import { type Metadata } from "next";
 import { Geist, Outfit, Plus_Jakarta_Sans } from "next/font/google";
-
-import { TRPCReactProvider } from "~/trpc/react";
-import { TicketProvider } from "~/features/ticket-widget";
 
 export const metadata: Metadata = {
     title: "Click_ | The Headless No-Code Editor",
@@ -35,11 +32,11 @@ export default function RootLayout({
         <html
             lang="en"
             className={`${geist.variable} ${outfit.variable} ${jakarta.variable} font-sans`}
+            suppressHydrationWarning
         >
             <body className="antialiased">
-                <TRPCReactProvider>
-                    <TicketProvider>{children}</TicketProvider>
-                </TRPCReactProvider>
+                <Script src="/__editor.js" strategy="beforeInteractive" />
+                {children}
             </body>
         </html>
     );

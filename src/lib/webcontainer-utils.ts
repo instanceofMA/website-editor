@@ -31,13 +31,26 @@ export async function getWebContainerFileSystemTree(
                     directory: await getWebContainerFileSystemTree(res),
                 };
             } else {
-                // Read as utf-8 string for WebContainers
-                const content = await fs.readFile(res, "utf-8");
-                tree[entry.name] = {
-                    file: {
-                        contents: content,
-                    },
-                };
+                // Read as Buffer first to check for binary content
+                const buffer = await fs.readFile(res);
+                const hasNullBytes = buffer.includes(0);
+
+                // Postgres jsonb does not support null bytes (\u0000).
+                // To support binary files (images, icons), we encode them as Base64.
+                if (hasNullBytes) {
+                    tree[entry.name] = {
+                        file: {
+                            contents: buffer.toString("base64"),
+                            encoding: "base64",
+                        },
+                    };
+                } else {
+                    tree[entry.name] = {
+                        file: {
+                            contents: buffer.toString("utf-8"),
+                        },
+                    };
+                }
             }
         }
     } catch (e) {
