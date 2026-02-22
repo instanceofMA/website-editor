@@ -127,9 +127,22 @@ exports.Prisma.LeadScalarFieldEnum = {
   createdAt: 'createdAt'
 };
 
+exports.Prisma.ProjectScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  stack: 'stack',
+  files: 'files',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
+};
+
+exports.Prisma.JsonNullValueInput = {
+  JsonNull: Prisma.JsonNull
 };
 
 exports.Prisma.QueryMode = {
@@ -137,9 +150,25 @@ exports.Prisma.QueryMode = {
   insensitive: 'insensitive'
 };
 
+exports.Prisma.JsonNullValueFilter = {
+  DbNull: Prisma.DbNull,
+  JsonNull: Prisma.JsonNull,
+  AnyNull: Prisma.AnyNull
+};
+
+exports.Prisma.NullsOrder = {
+  first: 'first',
+  last: 'last'
+};
+exports.ProjectStack = exports.$Enums.ProjectStack = {
+  NEXTJS: 'NEXTJS',
+  ANGULAR: 'ANGULAR',
+  STATIC: 'STATIC'
+};
 
 exports.Prisma.ModelName = {
-  Lead: 'Lead'
+  Lead: 'Lead',
+  Project: 'Project'
 };
 
 /**

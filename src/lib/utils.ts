@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { v4 as uuidv4 } from "uuid";
 
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -38,6 +39,10 @@ const NOUNS = [
 ];
 
 export function generateProjectId(): string {
+    return uuidv4();
+}
+
+export function generateProjectName(): string {
     const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
     const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
     const num = Math.floor(Math.random() * 1000);

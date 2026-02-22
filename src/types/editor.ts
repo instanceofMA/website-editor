@@ -56,4 +56,5 @@ export type EditorMessage =
     | { type: "STYLES_GENERATED"; css: string }
     | { type: "REQUEST_STYLES" }
     | { type: "HTML_GENERATED"; html: string }
-    | { type: "REQUEST_HTML" };
+    | { type: "REQUEST_HTML" }
+    | { type: "PAGE_NAVIGATED"; path: string };

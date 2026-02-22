@@ -1,18 +1,29 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-    provider = "prisma-client-js"
-    output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Lead {
-    id        String   @id @default(cuid())
-    email     String   @unique
-    createdAt DateTime @default(now())
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+
+enum ProjectStack {
+  NEXTJS
+  ANGULAR
+  STATIC
+}
+
+model Project {
+  id        String       @id @default(uuid())
+  name      String?
+  stack     ProjectStack @default(STATIC)
+  files     Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 }

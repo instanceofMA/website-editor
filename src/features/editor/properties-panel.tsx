@@ -81,7 +81,7 @@ export function PropertiesPanel({
     // If collapsed, only show the toggle button strip
     if (collapsed) {
         return (
-            <aside className="w-14 border-l bg-sidebar flex flex-col items-center py-4 shrink-0 transition-all duration-300">
+            <aside className="w-14 border-l bg-sidebar flex flex-col items-center py-4 shrink-0 transition-all duration-300 h-full">
                 <Button
                     variant="ghost"
                     size="icon"
@@ -97,7 +97,7 @@ export function PropertiesPanel({
     // If expanded but no element selected
     if (!selectedElement) {
         return (
-            <aside className="w-80 border-l bg-sidebar bg-opacity-50 shrink-0 flex flex-col transition-all duration-300">
+            <aside className="w-80 border-l bg-sidebar shrink-0 flex flex-col transition-all duration-300 h-full">
                 <div className="h-14 border-b flex items-center justify-between px-4">
                     <span className="text-sm font-semibold">Properties</span>
                     <Button
@@ -148,7 +148,7 @@ export function PropertiesPanel({
     };
 
     return (
-        <aside className="w-80 border-l bg-sidebar bg-opacity-50 shrink-0 flex flex-col transition-all duration-300">
+        <aside className="w-80 border-l bg-sidebar shrink-0 flex flex-col transition-all duration-300 h-full">
             <div className="h-14 border-b flex items-center justify-between px-4">
                 <span className="text-sm font-semibold">Properties</span>
                 <Button
@@ -185,7 +185,7 @@ export function PropertiesPanel({
                                     "flex-1 py-1 rounded-sm transition-colors text-[10px] uppercase tracking-wide",
                                     targetMode === "inline"
                                         ? "bg-background shadow-sm text-foreground"
-                                        : "text-muted-foreground hover:text-foreground"
+                                        : "text-muted-foreground hover:text-foreground",
                                 )}
                                 onClick={() => setMode("inline")}
                             >
@@ -196,7 +196,7 @@ export function PropertiesPanel({
                                     "flex-1 py-1 rounded-sm transition-colors text-[10px] uppercase tracking-wide",
                                     targetMode === "class"
                                         ? "bg-background shadow-sm text-foreground"
-                                        : "text-muted-foreground hover:text-foreground"
+                                        : "text-muted-foreground hover:text-foreground",
                                 )}
                                 onClick={() => setMode("class")}
                             >
@@ -231,7 +231,7 @@ export function PropertiesPanel({
                                             onChange={(e) =>
                                                 onAttributeChange(
                                                     "href",
-                                                    e.target.value
+                                                    e.target.value,
                                                 )
                                             }
                                         />
@@ -263,7 +263,7 @@ export function PropertiesPanel({
                                     "flex flex-wrap gap-1.5 p-1.5 rounded-md border items-center transition-colors bg-background",
                                     targetMode === "class"
                                         ? "border-primary/50 shadow-[0_0_0_1px_rgba(var(--primary),0.2)]"
-                                        : "border-input"
+                                        : "border-input",
                                 )}
                             >
                                 {selectedElement.className
@@ -290,7 +290,7 @@ export function PropertiesPanel({
                                                     "flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border transition-colors cursor-pointer select-none",
                                                     isSelected
                                                         ? "bg-primary text-primary-foreground border-primary"
-                                                        : "bg-secondary text-secondary-foreground hover:bg-secondary/80 border-transparent"
+                                                        : "bg-secondary text-secondary-foreground hover:bg-secondary/80 border-transparent",
                                                 )}
                                             >
                                                 {isSelected && (
@@ -304,11 +304,11 @@ export function PropertiesPanel({
                                                         const newClasses = arr
                                                             .filter(
                                                                 (_, i) =>
-                                                                    i !== idx
+                                                                    i !== idx,
                                                             )
                                                             .join(" ");
                                                         onClassChange(
-                                                            newClasses
+                                                            newClasses,
                                                         );
                                                         if (manualClass === cls)
                                                             setManualClass("");
@@ -316,7 +316,7 @@ export function PropertiesPanel({
                                                     className={cn(
                                                         "ml-1 w-3.5 h-3.5 rounded-full flex items-center justify-center opacity-60 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 transition-all cursor-pointer",
                                                         isSelected &&
-                                                            "hover:bg-white/20"
+                                                            "hover:bg-white/20",
                                                     )}
                                                 >
                                                     <span className="sr-only">
@@ -356,7 +356,7 @@ export function PropertiesPanel({
                                             // Delay hide to allow click
                                             setTimeout(
                                                 () => setShowSuggestions(false),
-                                                200
+                                                200,
                                             );
                                         }}
                                         onKeyDown={(e) => {
@@ -375,7 +375,7 @@ export function PropertiesPanel({
                                                         onClassChange(
                                                             current
                                                                 ? `${current} ${val}`
-                                                                : val
+                                                                : val,
                                                         );
                                                     }
                                                     setManualClass(val);
@@ -395,11 +395,11 @@ export function PropertiesPanel({
                                                         c
                                                             .toLowerCase()
                                                             .includes(
-                                                                manualClassInput.toLowerCase()
+                                                                manualClassInput.toLowerCase(),
                                                             ) &&
                                                         !selectedElement.className.includes(
-                                                            c
-                                                        )
+                                                            c,
+                                                        ),
                                                 )
                                                 .slice(0, 50) // Limit results
                                                 .map((c) => (
@@ -412,14 +412,14 @@ export function PropertiesPanel({
                                                             onClassChange(
                                                                 current
                                                                     ? `${current} ${c}`
-                                                                    : c
+                                                                    : c,
                                                             );
                                                             setManualClass(c);
                                                             setManualClassInput(
-                                                                ""
+                                                                "",
                                                             );
                                                             setShowSuggestions(
-                                                                false
+                                                                false,
                                                             );
                                                         }}
                                                         className="w-full text-left px-2 py-1.5 text-xs hover:bg-accent text-popover-foreground flex items-center gap-2"
@@ -432,8 +432,8 @@ export function PropertiesPanel({
                                                     c
                                                         .toLowerCase()
                                                         .includes(
-                                                            manualClassInput.toLowerCase()
-                                                        )
+                                                            manualClassInput.toLowerCase(),
+                                                        ),
                                                 ) && (
                                                     <div className="px-2 py-1.5 text-xs text-muted-foreground italic">
                                                         Create "

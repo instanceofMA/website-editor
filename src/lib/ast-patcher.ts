@@ -1,0 +1,106 @@
+import type { WebContainer } from "@webcontainer/api";
+
+type ApplyPatchFn = (input: {
+    content: string;
+    patches: any[];
+}) => Promise<{ modified: boolean; content: string }>;
+
+/**
+ * Utility to apply precise AST patches to files within a running WebContainer.
+ * Relies on the backend TRPC route for actual AST parsing to avoid bundling `ts-morph` into the browser.
+ */
+export class WebContainerAstPatcher {
+    private webcontainer: WebContainer;
+    private applyPatchFn: ApplyPatchFn;
+
+    constructor(
+        webcontainerInstance: WebContainer,
+        applyPatchFn: ApplyPatchFn,
+    ) {
+        this.webcontainer = webcontainerInstance;
+        this.applyPatchFn = applyPatchFn;
+    }
+
+    /**
+     * Applies a batch of patches to a specific file inside the WebContainer.
+     * @param filePath e.g. "src/app/page.tsx"
+     * @param patches Array of patch operations with `{ lid, type, value, attribute, property }`
+     */
+    async applyPatches(filePath: string, patches: any[]): Promise<void> {
+        try {
+            // 1. Read current file content from WebContainer
+            const currentContent = await this.webcontainer.fs.readFile(
+                filePath,
+                "utf-8",
+            );
+
+            // 2. Delegate heavy AST parsing and patching to the backend TRPC route
+            const { modified, content: newContent } = await this.applyPatchFn({
+                content: currentContent,
+                patches,
+            });
+
+            // 3. Write back to WebContainer if changed
+            if (modified) {
+                await this.webcontainer.fs.writeFile(filePath, newContent);
+                console.log(
+                    `[AstPatcher] Saved modified file back to WebContainer: ${filePath}`,
+                );
+            }
+        } catch (error) {
+            console.error(`[AstPatcher] Failed to patch ${filePath}:`, error);
+        }
+    }
+
+    /**
+     * Extracts the current FileSystemTree from the WebContainer to sync with the backend Database.
+     */
+    async exportTree(dir: string = "."): Promise<any> {
+        const tree: any = {};
+        try {
+            const entries = await this.webcontainer.fs.readdir(dir, {
+                withFileTypes: true,
+            });
+
+            for (const entry of entries) {
+                const fullPath =
+                    dir === "." ? entry.name : `${dir}/${entry.name}`;
+
+                // Ignore build artifacts and modules
+                if (
+                    entry.name === "node_modules" ||
+                    entry.name === ".next" ||
+                    entry.name === ".swc"
+                ) {
+                    continue;
+                }
+
+                if (entry.isDirectory()) {
+                    tree[entry.name] = {
+                        directory: await this.exportTree(fullPath),
+                    };
+                } else if (entry.isFile()) {
+                    // We can only reliably export text files, ignore binaries for now
+                    try {
+                        const content = await this.webcontainer.fs.readFile(
+                            fullPath,
+                            "utf-8",
+                        );
+                        tree[entry.name] = {
+                            file: {
+                                contents: content,
+                            },
+                        };
+                    } catch (e) {
+                        console.warn(
+                            `[AstPatcher] Skipping file ${fullPath} during export`,
+                        );
+                    }
+                }
+            }
+        } catch (e) {
+            console.error(`[AstPatcher] Failed to export directory ${dir}:`, e);
+        }
+        return tree;
+    }
+}

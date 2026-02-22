@@ -2,6 +2,9 @@ export const EDITOR_SCRIPT = `
 (function() {
     console.log("Website Editor: Injected script active (v2)");
 
+    if (window.__editorRuntimeActive) return;
+    window.__editorRuntimeActive = true;
+
     class EditorRuntime {
         constructor() {
             this.selectedElement = null;
@@ -9,7 +12,19 @@ export const EDITOR_SCRIPT = `
             
             // Check if running in iframe or standalone
             this.isStandalone = window.self === window.top;
-            this.isPreview = this.isStandalone; // Default to preview mode if standalone
+            
+            // Seed from URL if present
+            if (window.location.search.includes('preview=true')) {
+                sessionStorage.setItem('editor_preview_mode', 'true');
+            } else if (window.location.search.includes('preview=false')) {
+                sessionStorage.setItem('editor_preview_mode', 'false');
+            }
+
+            this.isPreview = this.isStandalone || sessionStorage.getItem('editor_preview_mode') === 'true';
+
+            // Apply mode synchronously — beforeInteractive runs before React hydrates.
+            // suppressHydrationWarning on <html> handles the server/client class mismatch.
+            this.updateMode(this.isPreview);
 
             if (this.isStandalone) {
                 console.log("Website Editor: Running in standalone mode");
@@ -19,22 +34,26 @@ export const EDITOR_SCRIPT = `
             this.bindEvents();
             this.bindMessageListener();
             this.broadcastHeight();
-            if (!this.isStandalone) {
+            if (!this.isPreview) {
                 this.scanClasses(); // Initial scan only if in editor
             }
         }
 
         initStyles() {
-            // Highlighting styles
+            // Highlighting styles - scoped to html.editor-mode
             const style = document.createElement('style');
             style.textContent = \`
-                [data-editor-highlight] {
-                    outline: 2px solid #0099ff !important;
+                html.editor-mode [data-editor-highlight] {
+                    outline: 2px solid rgba(0, 153, 255, 0.4) !important;
+                    box-shadow: inset 0 0 0 1000px rgba(0, 153, 255, 0.05) !important;
                     cursor: default !important;
+                    transition: all 0.1s ease-out;
                 }
-                [data-editor-selected] {
+                html.editor-mode [data-editor-selected] {
                     outline: 2px solid #0099ff !important;
-                    background: rgba(0, 153, 255, 0.1) !important;
+                    box-shadow: inset 0 0 0 1000px rgba(0, 153, 255, 0.15) !important;
+                    transition: all 0.2s ease-out;
+                    z-index: 10;
                 }
             \`;
             document.head.appendChild(style);
@@ -46,6 +65,16 @@ export const EDITOR_SCRIPT = `
                 if (this.isPreview) return;
                 e.preventDefault();
                 e.stopPropagation();
+                if (e.target instanceof HTMLElement) {
+                    e.target.setAttribute('data-editor-highlight', 'true');
+                }
+            }, true);
+
+            document.addEventListener('mouseout', (e) => {
+                if (this.isPreview) return;
+                if (e.target instanceof HTMLElement) {
+                    e.target.removeAttribute('data-editor-highlight');
+                }
             }, true);
 
             // Click selection
@@ -80,6 +109,41 @@ export const EDITOR_SCRIPT = `
                 }
             }, true);
 
+            // Navigation Sync
+            let lastPath = window.location.pathname;
+            const checkNav = () => {
+                const currentPath = window.location.pathname;
+                if (currentPath !== lastPath) {
+                    lastPath = currentPath;
+                    window.parent.postMessage({
+                        type: 'PAGE_NAVIGATED',
+                        path: currentPath
+                    }, '*');
+                }
+            };
+            
+            // Observe pushState/replaceState
+            const originalPushState = window.history.pushState;
+            const originalReplaceState = window.history.replaceState;
+            window.history.pushState = function() {
+                originalPushState.apply(this, arguments);
+                setTimeout(checkNav, 0);
+            };
+            window.history.replaceState = function() {
+                originalReplaceState.apply(this, arguments);
+                setTimeout(checkNav, 0);
+            };
+            window.addEventListener('popstate', checkNav);
+            
+            // Intercept link clicks as a backup
+            document.addEventListener('click', (e) => {
+                const link = e.target.closest('a');
+                if (link && link.href && link.target !== '_blank') {
+                    // Navigate and check after a tick
+                    setTimeout(checkNav, 100);
+                }
+            }, true);
+
             // Resize observer
             const observer = new ResizeObserver(() => this.broadcastHeight());
             if(document.body) observer.observe(document.body);
@@ -99,9 +163,8 @@ export const EDITOR_SCRIPT = `
         handleMessage(data) {
             switch(data.type) {
                 case 'TOGGLE_PREVIEW':
-                    this.isPreview = data.value;
+                    this.updateMode(data.value);
                     if (this.isPreview && this.selectedElement) {
-                        this.selectedElement.removeAttribute('data-editor-selected');
                         this.selectedElement = null;
                     }
                     break;
@@ -140,13 +203,27 @@ export const EDITOR_SCRIPT = `
                     }, '*');
                     break;
                 case 'REQUEST_HTML':
-                    // We need the full HTML, but we might want to strip our editor script/styles if we were doing a "clean" export.
-                    // For now, we send the raw outerHTML and let the host clean it or use it as is (for persistence).
                     window.parent.postMessage({
                         type: 'HTML_GENERATED',
                         html: document.documentElement.outerHTML
                     }, '*');
                     break;
+            }
+        }
+
+        updateMode(isPreview) {
+            this.isPreview = isPreview;
+            sessionStorage.setItem('editor_preview_mode', this.isPreview ? 'true' : 'false');
+            
+            if (this.isPreview) {
+                document.documentElement.classList.remove('editor-mode');
+                // Proactive cleanup of all editor attributes
+                document.querySelectorAll('[data-editor-highlight], [data-editor-selected]').forEach(el => {
+                    el.removeAttribute('data-editor-highlight');
+                    el.removeAttribute('data-editor-selected');
+                });
+            } else {
+                document.documentElement.classList.add('editor-mode');
             }
         }
 

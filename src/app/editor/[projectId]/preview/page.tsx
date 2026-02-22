@@ -53,25 +53,18 @@ export default function PreviewPage() {
     // React to server data updates if we didn't load from local
     useEffect(() => {
         if (serverData && !srcDoc) {
-            if (serverData.baseUrl) setBaseUrl(serverData.baseUrl);
-
-            if (serverData.pages && serverData.pages.length > 0) {
-                if (serverData.pages.includes("index.html"))
-                    setActivePage("index.html");
-                else if (serverData.pages.includes("/")) setActivePage("/");
-                else if (serverData.pages[0])
-                    setActivePage(serverData.pages[0]);
+            const pages = serverData.pages as string[];
+            if (pages && pages.length > 0) {
+                // Pages are normalized to route paths (e.g. "/" for index, "/about" for about)
+                if (pages.includes("/")) setActivePage("/");
+                else setActivePage(pages[0]!); // Force non-null
             }
             setLoading(false);
         }
     }, [serverData, srcDoc]);
 
-    const srcUrl =
-        !srcDoc && baseUrl
-            ? activePage.startsWith("/")
-                ? `${baseUrl}${activePage}`
-                : `${baseUrl}/${activePage}`
-            : undefined;
+    // Note: WebContainer will eventually just use window.open() for previews, bypassing this component.
+    const srcUrl = undefined;
 
     // Toggle Preview Mode in Iframe on Load
     const handleIframeLoad = () => {
@@ -80,13 +73,13 @@ export default function PreviewPage() {
             setTimeout(() => {
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "TOGGLE_PREVIEW", value: true },
-                    "*"
+                    "*",
                 );
             }, 100);
             setTimeout(() => {
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "TOGGLE_PREVIEW", value: true },
-                    "*"
+                    "*",
                 );
             }, 500);
         }

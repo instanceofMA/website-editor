@@ -1,290 +1,376 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { Button } from "~/components/ui/button";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-} from "~/components/ui/card";
-import {
-    ProjectTypeSchema,
-    ImportProjectSchema,
-    type ImportProjectInput,
-} from "~/lib/schemas";
-import {
-    FileCode,
-    CheckCircle2,
-    AlertCircle,
-    Loader2,
-    Upload,
-} from "lucide-react";
-import { cn, getApiPath } from "~/lib/utils";
-import { TicketWindow, TicketFAB } from "~/features/ticket-widget";
+import { UploadCloud, FileArchive, Loader2, Folder } from "lucide-react";
+import { toast } from "sonner";
+import JSZip from "jszip";
+import { api } from "~/trpc/react";
+
+type Stack = "nextjs" | "angular" | "static" | "auto";
 
 export default function ImportPage() {
-    const router = useRouter();
-    const [status, setStatus] = useState<
-        "idle" | "uploading" | "parsing" | "done"
-    >("idle");
     const [isDragging, setIsDragging] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [selectedStack, setSelectedStack] = useState<Stack>("auto");
+    const router = useRouter();
+    const folderInputRef = useRef<HTMLInputElement>(null);
 
-    const {
-        handleSubmit,
-        setValue,
-        watch,
-        formState: { errors },
-        resetField,
-    } = useForm<ImportProjectInput>({
-        resolver: zodResolver(ImportProjectSchema),
-        defaultValues: {
-            type: "html-css-js",
+    const importMutation = api.project.importProject.useMutation({
+        onSuccess: (data) => {
+            const stackNames: Record<string, string> = {
+                NEXTJS: "Next.js",
+                ANGULAR: "Angular",
+                STATIC: "Static HTML",
+            };
+            const name = stackNames[data.stack] || "Project";
+            toast.success(`${name} project imported successfully!`);
+            router.push(`/editor/${data.projectId}`);
+        },
+        onError: (error) => {
+            console.error(error);
+            toast.error(error.message || "Failed to import project");
+            setIsProcessing(false);
         },
     });
 
-    const selectedType = watch("type");
-    const file = watch("file");
+    // Global drag-and-drop overlay logic
+    useEffect(() => {
+        const handleDragOver = (e: DragEvent) => {
+            e.preventDefault();
+            setIsDragging(true);
+        };
+        const handleDragLeave = (e: DragEvent) => {
+            if (e.relatedTarget === null) {
+                setIsDragging(false);
+            }
+        };
+        const handleDrop = (e: DragEvent) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const file = e.dataTransfer?.files?.[0];
+            if (file) handleFile(file);
+        };
 
-    const onSubmit = async (data: ImportProjectInput) => {
-        setStatus("uploading");
+        window.addEventListener("dragover", handleDragOver);
+        window.addEventListener("dragleave", handleDragLeave);
+        window.addEventListener("drop", handleDrop);
 
-        const formData = new FormData();
-        formData.append("file", data.file);
-        formData.append("type", data.type);
+        return () => {
+            window.removeEventListener("dragover", handleDragOver);
+            window.removeEventListener("dragleave", handleDragLeave);
+            window.removeEventListener("drop", handleDrop);
+        };
+    }, []);
 
-        try {
-            const res = await fetch(getApiPath("/api/import"), {
-                method: "POST",
-                body: formData,
-            });
+    const buildTreeFromFiles = async (files: FileList | File[]) => {
+        const tree: any = {};
+        const filePromises: Promise<void>[] = [];
 
-            if (!res.ok) {
-                throw new Error("Failed to upload project");
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i]!;
+            const relativePath = (file as any).webkitRelativePath || file.name;
+
+            const pathParts = relativePath.split("/");
+            if (
+                relativePath.includes("__MACOSX/") ||
+                pathParts.some((p: string) => p.startsWith(".")) ||
+                pathParts.some((p: string) =>
+                    [
+                        "node_modules",
+                        "dist",
+                        ".next",
+                        ".git",
+                        "build",
+                        "out",
+                    ].includes(p),
+                )
+            ) {
+                continue;
             }
 
-            const responseData = await res.json();
+            filePromises.push(
+                file.arrayBuffer().then((buffer) => {
+                    const content = new Uint8Array(buffer);
+                    const isText =
+                        /\.(html|css|js|jsx|ts|tsx|json|md|txt|svg)$/i.test(
+                            relativePath,
+                        );
 
-            setStatus("parsing");
-            // Simulate parsing delay
-            setTimeout(() => {
-                setStatus("done");
-                router.push(`/editor/${responseData.projectId}`);
-            }, 1500);
-        } catch (err) {
-            console.error(err);
-            setStatus("idle");
-            alert("Something went wrong during import. Please try again.");
+                    let fileContent: string = "";
+                    try {
+                        fileContent = new TextDecoder().decode(content);
+                    } catch (e) {
+                        console.warn(
+                            `Could not decode file ${relativePath} as text, skipping or using empty.`,
+                        );
+                        fileContent = "";
+                    }
+
+                    const parts = relativePath.split("/");
+                    let currentLevel = tree;
+
+                    for (let j = 0; j < parts.length - 1; j++) {
+                        const part = parts[j]!;
+                        if (!part) continue;
+                        if (!currentLevel[part]) {
+                            currentLevel[part] = { directory: {} };
+                        }
+                        currentLevel = currentLevel[part].directory;
+                    }
+
+                    const fileName = parts[parts.length - 1]!;
+                    if (fileName) {
+                        currentLevel[fileName] = {
+                            file: { contents: fileContent },
+                        };
+                    }
+                }),
+            );
+        }
+
+        await Promise.all(filePromises);
+
+        let finalTree = tree;
+        const rootKeys = Object.keys(tree);
+        if (rootKeys.length === 1 && tree[rootKeys[0]!]?.directory) {
+            finalTree = tree[rootKeys[0]!].directory;
+        }
+
+        return finalTree;
+    };
+
+    const handleFile = async (file: File) => {
+        setIsProcessing(true);
+        try {
+            const zip = new JSZip();
+            const contents = await zip.loadAsync(file);
+            const tree: any = {};
+            const filePromises: Promise<void>[] = [];
+
+            contents.forEach((relativePath, zipEntry) => {
+                const pathParts = relativePath.split("/");
+                if (
+                    relativePath.includes("__MACOSX/") ||
+                    pathParts.some((p: string) => p.startsWith(".")) ||
+                    pathParts.some((p: string) =>
+                        [
+                            "node_modules",
+                            "dist",
+                            ".next",
+                            ".git",
+                            "build",
+                            "out",
+                        ].includes(p),
+                    )
+                )
+                    return;
+
+                if (!zipEntry.dir) {
+                    filePromises.push(
+                        zipEntry.async("uint8array").then((content) => {
+                            const isText =
+                                /\.(html|css|js|jsx|ts|tsx|json|md|txt|svg)$/i.test(
+                                    relativePath,
+                                );
+                            let fileContent: string = "";
+                            try {
+                                fileContent = new TextDecoder().decode(content);
+                            } catch (e) {
+                                console.warn(
+                                    `Could not decode file ${relativePath} as text.`,
+                                );
+                            }
+
+                            const parts = relativePath.split("/");
+                            let currentLevel = tree;
+                            for (let i = 0; i < parts.length - 1; i++) {
+                                const part = parts[i]!;
+                                if (!part) continue;
+                                if (!currentLevel[part])
+                                    currentLevel[part] = { directory: {} };
+                                currentLevel = currentLevel[part].directory;
+                            }
+                            const fileName = parts[parts.length - 1];
+                            if (fileName) {
+                                currentLevel[fileName] = {
+                                    file: { contents: fileContent },
+                                };
+                            }
+                        }),
+                    );
+                }
+            });
+
+            await Promise.all(filePromises);
+
+            let finalTree = tree;
+            const rootKeys = Object.keys(tree);
+            if (rootKeys.length === 1 && tree[rootKeys[0]!]?.directory) {
+                finalTree = tree[rootKeys[0]!].directory;
+            }
+            const projectName = file.name.replace(/\.zip$/i, "");
+            importMutation.mutate({
+                files: finalTree,
+                stack: selectedStack,
+                name: projectName,
+            });
+        } catch (error) {
+            console.error("ZIP processing error:", error);
+            toast.error("Failed to parse ZIP file");
+            setIsProcessing(false);
         }
     };
 
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
+    const handleFolderUpload = async (
+        e: React.ChangeEvent<HTMLInputElement>,
+    ) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
 
-    const handleDragLeave = () => {
-        setIsDragging(false);
-    };
+        setIsProcessing(true);
+        try {
+            // Extract folder name from the first file's path
+            const firstFile = files[0];
+            let folderName = "Imported Folder";
+            if (firstFile) {
+                const relativePath =
+                    (firstFile as any).webkitRelativePath || firstFile.name;
+                const parts = relativePath.split("/");
+                if (parts.length > 0 && parts[0]) {
+                    folderName = parts[0];
+                }
+            }
 
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-
-        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            setValue("file", e.dataTransfer.files[0], { shouldValidate: true });
-        }
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setValue("file", e.target.files[0], { shouldValidate: true });
+            const tree = await buildTreeFromFiles(files);
+            importMutation.mutate({
+                files: tree,
+                stack: selectedStack,
+                name: folderName,
+            });
+        } catch (error) {
+            console.error("Folder processing error:", error);
+            toast.error("Failed to process folder");
+            setIsProcessing(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-secondary/30 flex items-center justify-center p-4">
-            <TicketWindow />
-            <TicketFAB />
-            <Card className="w-full max-w-lg bg-background border-border shadow-lg">
-                <form onSubmit={handleSubmit(onSubmit)}>
-                    <CardHeader>
-                        <CardTitle>Import Website</CardTitle>
-                        <CardDescription>
-                            Upload your project source code to start editing.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                        {/* Tech Stack Selection */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium leading-none">
-                                Tech Stack
-                            </label>
-                            <div className="grid grid-cols-1 gap-2">
+        <div className="flex h-screen flex-col items-center justify-center bg-background p-6">
+            {/* Simple Global Drag Overlay */}
+            {isDragging && (
+                <div className="fixed inset-0 z-50 bg-primary/10 backdrop-blur-sm border-4 border-dashed border-primary flex items-center justify-center pointer-events-none">
+                    <div className="bg-background p-8 rounded-xl shadow-xl flex flex-col items-center gap-4">
+                        <UploadCloud className="w-12 h-12 text-primary animate-bounce" />
+                        <h2 className="text-2xl font-bold">Drop to Import</h2>
+                    </div>
+                </div>
+            )}
+
+            <div className="max-w-md w-full space-y-8 text-center">
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <h1 className="text-3xl font-bold tracking-tight">
+                            Import Website
+                        </h1>
+                        <p className="text-muted-foreground">
+                            Upload a .zip file or folder containing your
+                            project.
+                        </p>
+                    </div>
+
+                    {/* Stack Selector */}
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                        {(["auto", "nextjs", "angular", "static"] as const).map(
+                            (stack) => (
                                 <button
-                                    type="button"
-                                    onClick={() =>
-                                        setValue("type", "html-css-js")
-                                    }
-                                    className={cn(
-                                        "flex items-center gap-3 p-3 rounded-lg border text-left transition-all",
-                                        selectedType === "html-css-js"
-                                            ? "border-primary bg-primary/5 ring-1 ring-primary"
-                                            : "border-input hover:bg-secondary/50"
-                                    )}
+                                    key={stack}
+                                    onClick={() => setSelectedStack(stack)}
+                                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                                        selectedStack === stack
+                                            ? "bg-primary text-primary-foreground border-primary"
+                                            : "bg-secondary text-secondary-foreground border-transparent hover:border-muted-foreground/25"
+                                    }`}
                                 >
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-orange-100 text-orange-600">
-                                        <FileCode className="h-6 w-6" />
-                                    </div>
-                                    <div>
-                                        <div className="font-medium">
-                                            Plain HTML/CSS/JS
-                                        </div>
-                                        <div className="text-xs text-muted-foreground">
-                                            Standard static websites
-                                        </div>
-                                    </div>
-                                    {selectedType === "html-css-js" && (
-                                        <CheckCircle2 className="ml-auto h-5 w-5 text-primary" />
-                                    )}
+                                    {stack.toUpperCase()}
                                 </button>
+                            ),
+                        )}
+                    </div>
+                </div>
 
-                                <button
-                                    type="button"
-                                    className="flex items-center gap-3 p-3 rounded-lg border text-left opacity-50 cursor-not-allowed border-input bg-secondary/20"
-                                    disabled
-                                >
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-black text-white">
-                                        <span className="font-bold text-xs">
-                                            Nj
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <div className="font-medium">
-                                            Next.js (Coming Soon)
-                                        </div>
-                                        <div className="text-xs text-muted-foreground">
-                                            App Router & Tailwind
-                                        </div>
-                                    </div>
-                                </button>
+                <div
+                    className={`border-2 border-dashed rounded-xl p-12 transition-colors flex flex-col items-center justify-center gap-4 relative ${
+                        isDragging
+                            ? "border-primary bg-primary/5"
+                            : "border-muted-foreground/25 hover:border-primary/50"
+                    }`}
+                >
+                    <input
+                        type="file"
+                        accept=".zip"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleFile(file);
+                        }}
+                        disabled={isProcessing}
+                    />
+
+                    {isProcessing ? (
+                        <>
+                            <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                            <p className="font-medium animate-pulse">
+                                Processing and preparing editor...
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <div className="p-4 bg-secondary rounded-full">
+                                <FileArchive className="w-10 h-10 text-primary" />
                             </div>
-                        </div>
-
-                        {/* File Upload */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium leading-none">
-                                Source Code (.zip)
-                            </label>
-
-                            <div
-                                onDragOver={handleDragOver}
-                                onDragLeave={handleDragLeave}
-                                onDrop={handleDrop}
-                                className={cn(
-                                    "relative flex flex-col items-center justify-center w-full h-48 rounded-lg border-2 border-dashed transition-colors cursor-pointer",
-                                    isDragging
-                                        ? "border-primary bg-primary/5"
-                                        : "border-muted-foreground/25 hover:bg-secondary/20",
-                                    errors.file
-                                        ? "border-destructive/50 bg-destructive/5"
-                                        : ""
-                                )}
-                            >
-                                <input
-                                    type="file"
-                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                    accept=".zip"
-                                    onChange={handleFileChange}
-                                    disabled={status !== "idle"}
-                                />
-
-                                {file ? (
-                                    <div className="flex flex-col items-center p-4 text-center">
-                                        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                                            <FileCode className="h-6 w-6 text-primary" />
-                                        </div>
-                                        <p className="font-medium text-sm truncate max-w-[200px]">
-                                            {file.name}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            {(file.size / 1024 / 1024).toFixed(
-                                                2
-                                            )}{" "}
-                                            MB
-                                        </p>
-                                        <Button
-                                            type="button"
-                                            variant="link"
-                                            size="sm"
-                                            className="mt-1 h-auto p-0 text-destructive hover:text-destructive"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                e.preventDefault();
-                                                resetField("file");
-                                            }}
-                                        >
-                                            Remove
-                                        </Button>
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col items-center p-4 text-center">
-                                        <Upload className="h-8 w-8 text-muted-foreground mb-4" />
-                                        <p className="text-sm font-medium">
-                                            Click or drag file to this area to
-                                            upload
-                                        </p>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            Support for .zip archives
-                                        </p>
-                                    </div>
-                                )}
+                            <div>
+                                <p className="font-semibold text-lg">
+                                    Click or drag & drop ZIP
+                                </p>
+                                <p className="text-sm text-muted-foreground mt-1 text-balance">
+                                    Upload a ZIP file (max 50MB recommended)
+                                </p>
                             </div>
-                            {errors.file && (
-                                <div className="flex items-center gap-2 text-sm text-destructive mt-2">
-                                    <AlertCircle className="h-4 w-4" />
-                                    <span>{errors.file.message}</span>
-                                </div>
-                            )}
-                        </div>
-                    </CardContent>
-                    <CardFooter className="flex justify-between border-t p-6">
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={() => router.back()}
-                            disabled={status !== "idle"}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="submit"
-                            disabled={!file || status !== "idle"}
-                        >
-                            {status === "idle" && "Import Website"}
-                            {status === "uploading" && (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
-                                    Uploading...
-                                </>
-                            )}
-                            {status === "parsing" && (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
-                                    Parsing...
-                                </>
-                            )}
-                            {status === "done" && "Redirecting..."}
-                        </Button>
-                    </CardFooter>
-                </form>
-            </Card>
+                        </>
+                    )}
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <Button
+                        variant="outline"
+                        className="w-full gap-2"
+                        onClick={() => folderInputRef.current?.click()}
+                        disabled={isProcessing}
+                    >
+                        <Folder className="w-4 h-4" />
+                        Upload Folder Directly
+                    </Button>
+                    <input
+                        ref={folderInputRef}
+                        type="file"
+                        // @ts-ignore
+                        webkitdirectory=""
+                        directory=""
+                        className="hidden"
+                        onChange={handleFolderUpload}
+                    />
+                    <Button
+                        variant="ghost"
+                        onClick={() => router.back()}
+                        disabled={isProcessing}
+                        className="w-full"
+                    >
+                        Cancel
+                    </Button>
+                </div>
+            </div>
         </div>
     );
 }

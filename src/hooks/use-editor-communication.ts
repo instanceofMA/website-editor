@@ -4,7 +4,9 @@ import { EditorBridge } from "~/lib/editor/bridge";
 
 export function useEditorCommunication(
     iframeRef: RefObject<HTMLIFrameElement | null>,
-    onChange?: () => void
+    isPreviewMode: boolean,
+    onPageNavigate?: (path: string) => void,
+    onChange?: () => void,
 ) {
     const [selectedElement, setSelectedElement] =
         useState<EditorElement | null>(null);
@@ -31,10 +33,16 @@ export function useEditorCommunication(
                 });
             } else if (msg.type === "AVAILABLE_CLASSES") {
                 setAvailableClasses(msg.classes);
+            } else if (msg.type === "PAGE_NAVIGATED") {
+                onPageNavigate?.(msg.path);
             }
         });
 
-        const handleLoad = () => setLoading(false);
+        const handleLoad = () => {
+            setLoading(false);
+            // Re-sync preview mode on every navigation/load
+            EditorBridge.getInstance().togglePreview(isPreviewMode);
+        };
         const iframe = iframeRef.current;
         if (iframe) {
             iframe.addEventListener("load", handleLoad);
@@ -44,13 +52,13 @@ export function useEditorCommunication(
             unsubscribe();
             iframe?.removeEventListener("load", handleLoad);
         };
-    }, [iframeRef]);
+    }, [iframeRef, isPreviewMode]);
 
     const updateText = (text: string) => {
         if (!selectedElement) return;
         // Optimistic
         setSelectedElement((prev) =>
-            prev ? { ...prev, textContent: text } : null
+            prev ? { ...prev, textContent: text } : null,
         );
         EditorBridge.getInstance().updateText(text);
         onChange?.();
@@ -92,7 +100,7 @@ export function useEditorCommunication(
     const updateCssRule = (
         selector: string,
         property: string,
-        value: string
+        value: string,
     ) => {
         // No optimistic update for CSS rules as it depends on matching
         EditorBridge.getInstance().updateCssRule(selector, property, value);
@@ -102,7 +110,7 @@ export function useEditorCommunication(
     const updateClass = (className: string) => {
         if (!selectedElement) return;
         setSelectedElement((prev) =>
-            prev ? { ...prev, className: className } : null
+            prev ? { ...prev, className: className } : null,
         );
         EditorBridge.getInstance().updateClass(className);
         onChange?.();
