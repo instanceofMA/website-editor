@@ -26,6 +26,7 @@ import InfiniteCanvas, {
     type InfiniteCanvasRef,
 } from "~/features/editor/InfiniteCanvas";
 import { EditorBridge } from "~/lib/editor/bridge";
+import { UnclaimedProjectWarning } from "~/components/unclaimed-warning";
 
 export default function EditorPage() {
     const params = useParams();
@@ -394,17 +395,30 @@ export default function EditorPage() {
                         let contents = nodeAny.file.contents || "";
 
                         // Cleanup files for production export
-                        if (name.endsWith(".tsx") || name.endsWith(".jsx")) {
+                        if (
+                            name.endsWith(".tsx") ||
+                            name.endsWith(".jsx") ||
+                            name.endsWith(".html")
+                        ) {
                             // Strip lid tags
                             contents = contents.replace(
                                 /\sdata-lid="[^"]*"/g,
                                 "",
                             );
-                            // Strip injected Next.js script tag
-                            contents = contents.replace(
-                                /<Script\s+src="\/__editor\.js"[^>]*\/>/g,
-                                "",
-                            );
+
+                            if (name.endsWith(".html")) {
+                                // Strip injected script tag for static HTML
+                                contents = contents.replace(
+                                    /<script\s+src="\/__editor\.js"><\/script>\n?/i,
+                                    "",
+                                );
+                            } else {
+                                // Strip injected Next.js script tag
+                                contents = contents.replace(
+                                    /<Script\s+src="\/__editor\.js"[^>]*\/>/g,
+                                    "",
+                                );
+                            }
                         }
 
                         zip.file(fullPath, contents);
@@ -529,8 +543,10 @@ export default function EditorPage() {
                                     </select>
                                 </div>
                             </div>
-                            <div className="ml-4 border-l pl-4 h-6 flex items-center">
+                            <div className="ml-4 border-l pl-4 h-6 flex items-center gap-3">
                                 <SaveStatus status={saveStatus} />
+                                {/* TODO: Add logic to check if the project is claimed */}
+                                {projectData && <UnclaimedProjectWarning />}
                             </div>
                         </div>
 

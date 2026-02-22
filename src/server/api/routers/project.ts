@@ -5,6 +5,8 @@ import { generateProjectId, generateProjectName } from "~/lib/utils";
 import path from "path";
 import { getWebContainerFileSystemTree } from "~/lib/webcontainer-utils";
 
+import { autoTagTree } from "~/lib/auto-tagger";
+
 export const projectRouter = createTRPCRouter({
     list: publicProcedure.query(async ({ ctx }) => {
         return await ctx.db.project.findMany({
@@ -105,6 +107,17 @@ export const projectRouter = createTRPCRouter({
                     code: "NOT_FOUND",
                     message: "Project not found",
                 });
+            }
+
+            // Auto-tag AST elements if needed (fixes legacy imports or missing data-lids)
+            if (project.files) {
+                const wasModified = autoTagTree(project.files);
+                if (wasModified) {
+                    await ctx.db.project.update({
+                        where: { id: project.id },
+                        data: { files: project.files },
+                    });
+                }
             }
 
             return project;
@@ -457,23 +470,88 @@ export const projectRouter = createTRPCRouter({
                                 patch.attribute,
                             );
                             if (existingAttr) {
-                                targetForAttrs.removeAttribute(patch.attribute);
+                                existingAttr.remove();
                             }
+                            let attrValue = patch.value;
+                            if (attrValue === undefined || attrValue === null)
+                                attrValue = "";
                             targetForAttrs.addAttribute({
                                 name: patch.attribute,
-                                initializer: `"${patch.value}"`,
+                                initializer: `"${attrValue}"`,
                             });
                             break;
                         case "class":
                             const existingClass =
                                 targetForAttrs.getAttribute("className");
                             if (existingClass) {
-                                targetForAttrs.removeAttribute("className");
+                                existingClass.remove();
                             }
                             targetForAttrs.addAttribute({
                                 name: "className",
                                 initializer: `"${patch.value}"`,
                             });
+                            break;
+                        case "style":
+                            const camelProperty = String(
+                                patch.property || "",
+                            ).replace(/-./g, (x: string) =>
+                                x.charAt(1).toUpperCase(),
+                            );
+                            const styleAttr =
+                                targetForAttrs.getAttribute("style");
+                            if (
+                                styleAttr &&
+                                styleAttr.getKind() === SyntaxKind.JsxAttribute
+                            ) {
+                                const initializer = styleAttr.getInitializer();
+                                if (
+                                    initializer &&
+                                    initializer.getKind() ===
+                                        SyntaxKind.JsxExpression
+                                ) {
+                                    const expr = initializer.getExpression();
+                                    if (
+                                        expr &&
+                                        expr.getKind() ===
+                                            SyntaxKind.ObjectLiteralExpression
+                                    ) {
+                                        const props = expr.getProperties();
+                                        let propFound = false;
+                                        props.forEach((p: any) => {
+                                            if (
+                                                p.getKind() ===
+                                                SyntaxKind.PropertyAssignment
+                                            ) {
+                                                const propName = p
+                                                    .getName()
+                                                    .replace(/['"]/g, "");
+                                                if (
+                                                    propName ===
+                                                        camelProperty ||
+                                                    propName === patch.property
+                                                ) {
+                                                    p.setInitializer(
+                                                        `"${patch.value}"`,
+                                                    );
+                                                    propFound = true;
+                                                }
+                                            }
+                                        });
+                                        if (!propFound) {
+                                            expr.addPropertyAssignment({
+                                                name: `"${camelProperty}"`,
+                                                initializer: `"${patch.value}"`,
+                                            });
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (styleAttr) styleAttr.remove();
+                                targetForAttrs.addAttribute({
+                                    name: "style",
+                                    initializer: `{{ "${camelProperty}": "${patch.value}" }}`,
+                                });
+                            }
                             break;
                     }
                 }
