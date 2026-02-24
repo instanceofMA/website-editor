@@ -7,6 +7,39 @@ import { getWebContainerFileSystemTree } from "~/lib/webcontainer-utils";
 
 import { autoTagTree } from "~/lib/auto-tagger";
 
+/**
+ * Sanitize a WebContainer tree for storage in Postgres.
+ * Postgres JSONB does not support null bytes (\u0000).
+ */
+function sanitizeTree(tree: any) {
+    if (!tree || typeof tree !== "object") return;
+
+    for (const key in tree) {
+        const node = tree[key];
+        if (!node) continue;
+
+        if (node.directory) {
+            sanitizeTree(node.directory);
+        } else if (node.file) {
+            if (
+                typeof node.file.contents === "string" &&
+                node.file.encoding !== "base64"
+            ) {
+                // If a "text" file contains null bytes, Postgres will crash.
+                // Instead of stripping them (which breaks the file), we convert to Base64.
+                if (node.file.contents.includes("\0")) {
+                    console.warn(
+                        `[Sanitize] Converting file with null bytes to Base64: ${key}`,
+                    );
+                    const buf = Buffer.from(node.file.contents, "utf-8");
+                    node.file.contents = buf.toString("base64");
+                    node.file.encoding = "base64";
+                }
+            }
+        }
+    }
+}
+
 export const projectRouter = createTRPCRouter({
     list: publicProcedure.query(async ({ ctx }) => {
         return await ctx.db.project.findMany({
@@ -29,17 +62,20 @@ export const projectRouter = createTRPCRouter({
         .mutation(async ({ ctx, input }) => {
             try {
                 if (input.files) {
+                    // Sanitize files: Postgres JSONB does not support null bytes (\u0000)
+                    sanitizeTree(input.files);
+
                     await ctx.db.project.update({
                         where: { id: input.projectId },
                         data: { files: input.files },
                     });
                 }
                 return { success: true };
-            } catch (e) {
-                console.error(e);
+            } catch (e: any) {
+                console.error("Save error:", e);
                 throw new TRPCError({
                     code: "INTERNAL_SERVER_ERROR",
-                    message: "Failed to save project",
+                    message: `Failed to save project: ${e.message}`,
                 });
             }
         }),
@@ -137,6 +173,9 @@ export const projectRouter = createTRPCRouter({
                 }
                 if (input.templateId === "click") {
                     templateDir = "click";
+                }
+                if (input.templateId === "click-static") {
+                    templateDir = "click-static";
                 }
 
                 const dirToRead = path.join(
@@ -333,32 +372,149 @@ export const projectRouter = createTRPCRouter({
                             );
                         }
                     }
-                } else {
-                    // Static / Default - Inject into ALL HTML files for safety in static sites
-                    const injectIntoAllHtml = (currentTree: any) => {
-                        for (const key in currentTree) {
-                            const node = currentTree[key];
+                }
+
+                // --- Localization & Sanitization pass ---
+                const localizeResources = async (currentTree: any) => {
+                    const localizedFiles: Record<string, string> = {};
+
+                    // 1. Recursive scan to find and update references
+                    const scanAndFix = async (nodeTree: any) => {
+                        for (const key in nodeTree) {
+                            const node = nodeTree[key];
                             if (node.directory) {
-                                injectIntoAllHtml(node.directory);
-                            } else if (node.file && key.endsWith(".html")) {
+                                await scanAndFix(node.directory);
+                            } else if (node.file) {
+                                const filename = key.toLowerCase();
                                 let content = node.file.contents;
+                                if (typeof content !== "string") continue;
+
+                                let modified = false;
+
+                                // A. Inject Editor Bridge (into ALL HTML files for STATIC projects)
+                                // For modern frameworks we already handled the main entry point above,
+                                // but doing it here too for static sub-pages is safe.
                                 if (
-                                    typeof content === "string" &&
+                                    filename.endsWith(".html") &&
                                     !content.includes("__editor.js")
                                 ) {
-                                    node.file.contents = content.replace(
+                                    content = content.replace(
                                         /(<\/body>)/i,
                                         '<script src="/__editor.js"></script>\n$1',
                                     );
+                                    modified = true;
+                                }
+
+                                // B. Fix Tailwind CDN (preserving exact version if present)
+                                const tailwindMatch = content.match(
+                                    /https:\/\/cdn\.tailwindcss\.com[^\s"']*/,
+                                );
+                                if (tailwindMatch) {
+                                    const exactUrl = tailwindMatch[0];
+                                    const fileKey =
+                                        `tailwind-${exactUrl.split("/").pop() || "latest"}.js`.replace(
+                                            /[^a-zA-Z0-9.-]/g,
+                                            "_",
+                                        );
+
+                                    if (!localizedFiles[fileKey]) {
+                                        console.log(
+                                            `[Import] Localizing Tailwind: ${exactUrl}`,
+                                        );
+                                        try {
+                                            const res = await fetch(exactUrl);
+                                            if (res.ok) {
+                                                localizedFiles[fileKey] =
+                                                    await res.text();
+                                            }
+                                        } catch (e) {
+                                            console.error(
+                                                "Failed to fetch tailwind cdn",
+                                                e,
+                                            );
+                                        }
+                                    }
+                                    if (localizedFiles[fileKey]) {
+                                        content = content.replace(
+                                            new RegExp(
+                                                exactUrl.replace(
+                                                    /[.*+?^${}()|[\]\\]/g,
+                                                    "\\$&",
+                                                ),
+                                                "g",
+                                            ),
+                                            `/${fileKey}`,
+                                        );
+                                        modified = true;
+                                    }
+                                }
+
+                                // C. Fix Lucide CDN (preserving exact version/path)
+                                const lucideMatch = content.match(
+                                    /https:\/\/unpkg\.com\/lucide[^\s"']*/,
+                                );
+                                if (lucideMatch) {
+                                    const exactUrl = lucideMatch[0];
+                                    const fileKey =
+                                        `lucide-${exactUrl.split("/").filter(Boolean).pop() || "latest"}.js`.replace(
+                                            /[^a-zA-Z0-9.-]/g,
+                                            "_",
+                                        );
+
+                                    if (!localizedFiles[fileKey]) {
+                                        console.log(
+                                            `[Import] Localizing Lucide: ${exactUrl}`,
+                                        );
+                                        try {
+                                            const res = await fetch(exactUrl);
+                                            if (res.ok) {
+                                                localizedFiles[fileKey] =
+                                                    await res.text();
+                                            }
+                                        } catch (e) {
+                                            console.error(
+                                                "Failed to fetch lucide cdn",
+                                                e,
+                                            );
+                                        }
+                                    }
+                                    if (localizedFiles[fileKey]) {
+                                        content = content.replace(
+                                            new RegExp(
+                                                exactUrl.replace(
+                                                    /[.*+?^${}()|[\]\\]/g,
+                                                    "\\$&",
+                                                ),
+                                                "g",
+                                            ),
+                                            `/${fileKey}`,
+                                        );
+                                        modified = true;
+                                    }
+                                }
+
+                                if (modified) {
+                                    node.file.contents = content;
                                 }
                             }
                         }
                     };
-                    injectIntoAllHtml(tree);
-                    console.log(
-                        `[Import] Injected bridge into Static HTML files`,
-                    );
-                }
+
+                    await scanAndFix(currentTree);
+
+                    // 2. Add the localized files to the root of the tree
+                    for (const [filename, contents] of Object.entries(
+                        localizedFiles,
+                    )) {
+                        currentTree[filename] = {
+                            file: { contents },
+                        };
+                    }
+                };
+
+                await localizeResources(tree);
+
+                sanitizeTree(tree);
 
                 const stackEnumMap: Record<string, any> = {
                     nextjs: "NEXTJS",
@@ -416,6 +572,57 @@ export const projectRouter = createTRPCRouter({
             }),
         )
         .mutation(async ({ input }) => {
+            let modified = false;
+            const isHtml =
+                input.content.trim().startsWith("<!DOCTYPE") ||
+                input.content.trim().startsWith("<html");
+
+            if (isHtml) {
+                const cheerio = await import("cheerio");
+                const $ = cheerio.load(input.content);
+
+                for (const patch of input.patches) {
+                    const selector = `[data-lid="${patch.lid}"]`;
+                    const $element = $(selector);
+
+                    if ($element.length > 0) {
+                        modified = true;
+                        switch (patch.type) {
+                            case "text":
+                                $element.text(patch.value);
+                                break;
+                            case "attribute":
+                                $element.attr(patch.attribute, patch.value);
+                                break;
+                            case "class":
+                                $element.attr("class", patch.value);
+                                break;
+                            case "style":
+                                // For static HTML, we can just update the style attribute directly
+                                // Elements might already have style attributes
+                                const styleAttr = $element.attr("style") || "";
+                                const styles: Record<string, string> = {};
+                                styleAttr.split(";").forEach((s) => {
+                                    if (!s.trim()) return;
+                                    const [k, v] = s.split(":");
+                                    if (k && v) styles[k.trim()] = v.trim();
+                                });
+                                styles[patch.property] = patch.value;
+                                const newStyle = Object.entries(styles)
+                                    .map(([k, v]) => `${k}: ${v}`)
+                                    .join("; ");
+                                $element.attr("style", newStyle);
+                                break;
+                        }
+                    }
+                }
+
+                return {
+                    modified,
+                    content: modified ? $.html() : input.content,
+                };
+            }
+
             const { Project, SyntaxKind } = await import("ts-morph");
             const project = new Project({
                 useInMemoryFileSystem: true,
@@ -429,7 +636,6 @@ export const projectRouter = createTRPCRouter({
                 input.content,
                 { overwrite: true },
             );
-            let modified = false;
 
             const findJsxByDataLid = (lid: string) => {
                 let found: any = undefined;

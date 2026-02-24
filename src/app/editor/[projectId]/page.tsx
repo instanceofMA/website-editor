@@ -169,10 +169,32 @@ export default function EditorPage() {
 
                     if (patcher && activePage) {
                         try {
-                            const isRoot = activePage === "/";
-                            const targetFile = isRoot
-                                ? "src/app/page.tsx"
-                                : `src/app${activePage.replace(/^\/?/, "/")}/page.tsx`;
+                            const stack = projectData?.stack || "STATIC";
+                            let targetFile = "";
+
+                            if (stack === "STATIC") {
+                                // For static, we map / to index.html
+                                targetFile =
+                                    activePage === "/"
+                                        ? "index.html"
+                                        : `${activePage.replace(/^\//, "")}/index.html`;
+
+                                // Secondary check: if simple file routing is used
+                                if (
+                                    activePage !== "/" &&
+                                    !activePage.endsWith(".html")
+                                ) {
+                                    // Could be about.html instead of about/index.html
+                                    // For now, index.html is the standard in our templates
+                                }
+                            } else {
+                                // Modern stacks (Next.js, Angular)
+                                const isRoot = activePage === "/";
+                                targetFile = isRoot
+                                    ? "src/app/page.tsx"
+                                    : `src/app${activePage.replace(/^\/?/, "/")}/page.tsx`;
+                            }
+
                             await patcher.applyPatches(
                                 targetFile,
                                 patchesToSend,

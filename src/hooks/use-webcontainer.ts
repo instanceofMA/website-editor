@@ -32,12 +32,22 @@ function processFileSystemTree(tree: any): any {
         } else if (item.file) {
             let contents = item.file.contents;
             if (item.file.encoding === "base64") {
-                const binaryString = atob(contents);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
+                try {
+                    const binaryString = atob(contents);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    contents = bytes;
+                    console.log(
+                        `[WebContainer] Decoded binary file: ${key} (${bytes.length} bytes)`,
+                    );
+                } catch (e) {
+                    console.error(
+                        `[WebContainer] Failed to decode base64 file: ${key}`,
+                        e,
+                    );
                 }
-                contents = bytes;
             }
             processed[key] = {
                 file: {
@@ -110,6 +120,36 @@ export function useWebContainer(
                 setBootProgress(15);
                 const processedTree = processFileSystemTree(fileTreeJSON);
                 await inst.mount(processedTree);
+
+                // Explicitly re-write binary files after mount to ensure integrity
+                // Sometimes mount() might have issues with Uint8Array depending on the environment
+                const reWriteBinary = async (
+                    tree: any,
+                    currentPath: string = "",
+                ) => {
+                    for (const key in tree) {
+                        const item = tree[key];
+                        const fullPath = currentPath
+                            ? `${currentPath}/${key}`
+                            : key;
+                        if (item.directory) {
+                            await reWriteBinary(item.directory, fullPath);
+                        } else if (
+                            item.file &&
+                            item.file.contents instanceof Uint8Array
+                        ) {
+                            console.log(
+                                `[WebContainer] Re-writing binary file for integrity: ${fullPath}`,
+                            );
+                            await inst.fs.writeFile(
+                                fullPath,
+                                item.file.contents,
+                            );
+                        }
+                    }
+                };
+                await reWriteBinary(processedTree);
+
                 if (!active) return;
                 setIsBooted(true);
 
@@ -118,9 +158,27 @@ export function useWebContainer(
                     "server-ready",
                     (port: number, url: string) => {
                         if (active) {
-                            // Don't set progress to 100 yet — Next.js still needs to compile the first route
-                            setBootStatus("Compiling page...");
-                            setBootProgress(93);
+                            const normalizedStack = stack?.toUpperCase();
+                            const isModern =
+                                normalizedStack === "NEXTJS" ||
+                                normalizedStack === "ANGULAR";
+
+                            if (isModern) {
+                                // Next.js/Angular still needs to compile the first route
+                                // but ONLY if we haven't already marked it as ready or moved past 93%
+                                setBootProgress((prev) => {
+                                    if (prev < 93) {
+                                        setBootStatus("Compiling page...");
+                                        return 93;
+                                    }
+                                    return prev;
+                                });
+                            } else {
+                                // Static server is immediately ready once port is open
+                                setBootStatus("Ready!");
+                                setBootProgress(100);
+                                setIsFirstCompileDone(true);
+                            }
                             setPreviewUrl(url);
                             setIsServerReady(true);
                         }
@@ -135,6 +193,11 @@ export function useWebContainer(
                 } catch (err) {
                     hasPackageJson = false;
                 }
+
+                const normalizedStack = stack?.toUpperCase();
+                const isModernStack =
+                    normalizedStack === "NEXTJS" ||
+                    normalizedStack === "ANGULAR";
 
                 // Inject Editor Script
                 setBootStatus("Preparing editor bridge...");
@@ -153,17 +216,12 @@ export function useWebContainer(
                 };
 
                 await writeEditorScript("__editor.js");
-                if (hasPackageJson) {
+                if (hasPackageJson && isModernStack) {
                     await writeEditorScript("public/__editor.js");
                     await writeEditorScript("src/assets/__editor.js");
                 }
 
                 if (!active) return;
-
-                const normalizedStack = stack?.toUpperCase();
-                const isModernStack =
-                    normalizedStack === "NEXTJS" ||
-                    normalizedStack === "ANGULAR";
 
                 if (isModernStack && hasPackageJson) {
                     // 4. Install
@@ -267,13 +325,29 @@ export function useWebContainer(
                 } else {
                     // Static Server
                     setBootStatus("Starting static server...");
-                    setBootProgress(40);
+                    setBootProgress(60);
                     await inst.fs.writeFile("server.js", STATIC_SERVER_CONTENT);
+
                     const devProcess = await inst.spawn("node", ["server.js"]);
                     processes.push(devProcess);
-                    setBootStatus("Ready!");
-                    setBootProgress(100);
-                    setIsFirstCompileDone(true);
+
+                    devProcess.output.pipeTo(
+                        new WritableStream({
+                            write(data) {
+                                console.log("[Static Server]", data);
+                                const lower = data.toLowerCase();
+                                if (
+                                    lower.includes("started") ||
+                                    lower.includes("listening") ||
+                                    lower.includes("port 3000")
+                                ) {
+                                    setBootProgress(100);
+                                    setBootStatus("Ready!");
+                                    setIsFirstCompileDone(true);
+                                }
+                            },
+                        }),
+                    );
                 }
             } catch (err: any) {
                 if (active) {

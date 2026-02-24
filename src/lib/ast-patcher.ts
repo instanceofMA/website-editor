@@ -80,20 +80,53 @@ export class WebContainerAstPatcher {
                         directory: await this.exportTree(fullPath),
                     };
                 } else if (entry.isFile()) {
-                    // We can only reliably export text files, ignore binaries for now
+                    const ext = entry.name.toLowerCase().split(".").pop();
+                    const isBinary = [
+                        "png",
+                        "jpg",
+                        "jpeg",
+                        "gif",
+                        "webp",
+                        "ico",
+                        "woff",
+                        "woff2",
+                        "ttf",
+                        "pdf",
+                    ].includes(ext || "");
+
                     try {
-                        const content = await this.webcontainer.fs.readFile(
-                            fullPath,
-                            "utf-8",
-                        );
-                        tree[entry.name] = {
-                            file: {
-                                contents: content,
-                            },
-                        };
+                        if (isBinary) {
+                            const bytes =
+                                await this.webcontainer.fs.readFile(fullPath);
+                            // Convert Uint8Array to base64 string
+                            let binary = "";
+                            const len = bytes.byteLength;
+                            for (let i = 0; i < len; i++) {
+                                binary += String.fromCharCode(bytes[i]);
+                            }
+                            const base64 = btoa(binary);
+
+                            tree[entry.name] = {
+                                file: {
+                                    contents: base64,
+                                    encoding: "base64",
+                                },
+                            };
+                        } else {
+                            const content = await this.webcontainer.fs.readFile(
+                                fullPath,
+                                "utf-8",
+                            );
+                            tree[entry.name] = {
+                                file: {
+                                    contents: content,
+                                },
+                            };
+                        }
                     } catch (e) {
                         console.warn(
-                            `[AstPatcher] Skipping file ${fullPath} during export`,
+                            `[AstPatcher] Error exporting file ${fullPath}:`,
+                            e,
                         );
                     }
                 }
