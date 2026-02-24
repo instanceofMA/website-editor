@@ -39,8 +39,8 @@ export default function LandingPage() {
 
     const handleLaunch = () => {
         setIsLaunching(true);
-        // We use nextjs template for the "impressive" launch
-        createDemo.mutate({ templateId: "click" });
+        // We use static template for the "impressive" launch to be faster
+        createDemo.mutate({ templateId: "click-static" });
     };
 
     useEffect(() => {
@@ -120,7 +120,7 @@ export default function LandingPage() {
                             <div className="flex gap-2 animate-[reveal_0.4s_ease-out_forwards] opacity-0 [animation-delay:1.2s]">
                                 <span className="text-neutral-300">03</span>
                                 <span className="text-black/80">
-                                    starting_dev_server(adapter: "nextjs")
+                                    starting_dev_server(adapter: "static")
                                 </span>
                             </div>
                             <div className="flex gap-2 animate-[reveal_0.4s_ease-out_forwards] opacity-0 [animation-delay:2s]">

@@ -10,8 +10,23 @@ import { TicketWindow, TicketFAB } from "~/features/ticket-widget";
 
 const TEMPLATES = [
     {
+        id: "click-static",
+        name: "Click Static",
+        description:
+            "A premium developer-focused landing page for a headless CMS tool.",
+        tags: ["Static", "Premium Design", "Marketing"],
+        features: [
+            "Optimized performance",
+            "Modern typography",
+            "Complex layouts",
+            "Zero dependencies",
+        ],
+        icon: Sparkles,
+        color: "bg-gradient-to-br from-neutral-800 to-black",
+    },
+    {
         id: "static",
-        name: "Vibrant Static",
+        name: "Basic HTML",
         description:
             "A multi-page HTML/CSS/JS website with colorful gradients and smooth interactions.",
         tags: ["HTML", "CSS", "Vanilla JS"],
@@ -26,7 +41,7 @@ const TEMPLATES = [
     },
     {
         id: "nextjs-tailwind",
-        name: "Next.js SaaS Starter",
+        name: "Basic Next.js",
         description:
             "A modern React application using App Router and Tailwind CSS.",
         tags: ["Next.js", "React", "Tailwind", "TypeScript"],
@@ -83,14 +98,14 @@ export default function DemoSelectionPage() {
                             className={cn(
                                 "group relative overflow-hidden rounded-xl border bg-card text-card-foreground shadow transition-all hover:shadow-lg hover:border-primary/50",
                                 loading === template.id &&
-                                    "opacity-80 pointer-events-none"
+                                    "opacity-80 pointer-events-none",
                             )}
                         >
                             {/* Header / Thumbnail Placeholder */}
                             <div
                                 className={cn(
                                     "h-40 w-full flex items-center justify-center text-white",
-                                    template.color
+                                    template.color,
                                 )}
                             >
                                 <template.icon className="w-16 h-16 opacity-90 group-hover:scale-110 transition-transform duration-500" />
