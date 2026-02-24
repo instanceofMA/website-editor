@@ -40,6 +40,38 @@ function sanitizeTree(tree: any) {
     }
 }
 
+function extractPageRoutes(tree: any): string[] {
+    const pages: string[] = [];
+
+    const walk = (currentTree: any, currentPath: string) => {
+        for (const [name, node] of Object.entries(currentTree)) {
+            const nodeAny = node as any;
+            const fullPath = currentPath ? `${currentPath}/${name}` : name;
+
+            if (nodeAny.directory) {
+                walk(nodeAny.directory, fullPath);
+            } else if (nodeAny.file) {
+                if (name.endsWith(".html")) {
+                    const withoutExt = fullPath.replace(/\.html$/, "");
+                    const routePath =
+                        withoutExt === "index" ? "/" : `/${withoutExt}`;
+                    pages.push(routePath);
+                } else if (name === "page.tsx" || name === "page.jsx") {
+                    let routePath = fullPath
+                        .replace(/^src\/app\//, "")
+                        .replace(/\/?page\.(tsx|jsx)$/, "");
+                    if (routePath === "") routePath = "/";
+                    else routePath = `/${routePath}`;
+                    pages.push(routePath);
+                }
+            }
+        }
+    };
+
+    walk(tree, "");
+    return Array.from(new Set(pages));
+}
+
 export const projectRouter = createTRPCRouter({
     list: publicProcedure.query(async ({ ctx }) => {
         return await ctx.db.project.findMany({
@@ -65,9 +97,15 @@ export const projectRouter = createTRPCRouter({
                     // Sanitize files: Postgres JSONB does not support null bytes (\u0000)
                     sanitizeTree(input.files);
 
+                    // Re-calculate pages if files changed
+                    const pages = extractPageRoutes(input.files);
+
                     await ctx.db.project.update({
                         where: { id: input.projectId },
-                        data: { files: input.files },
+                        data: {
+                            files: input.files,
+                            pages: pages,
+                        },
                     });
                 }
                 return { success: true };
@@ -85,50 +123,34 @@ export const projectRouter = createTRPCRouter({
         .query(async ({ ctx, input }) => {
             const project = await ctx.db.project.findUnique({
                 where: { id: input.projectId },
+                select: { pages: true },
             });
 
-            if (!project || !project.files) {
+            if (!project) {
                 return { pages: [] };
             }
 
-            const pages: string[] = [];
-            const tree = project.files as any;
-
-            const extractPages = (currentTree: any, currentPath: string) => {
-                for (const [name, node] of Object.entries(currentTree)) {
-                    const nodeAny = node as any;
-                    const fullPath = currentPath
-                        ? `${currentPath}/${name}`
-                        : name;
-
-                    if (nodeAny.directory) {
-                        extractPages(nodeAny.directory, fullPath);
-                    } else if (nodeAny.file) {
-                        // Is a file
-                        if (name.endsWith(".html")) {
-                            // Normalize HTML file paths to route-style paths:
-                            // "index.html" -> "/", "about.html" -> "/about"
-                            const withoutExt = fullPath.replace(/\.html$/, "");
-                            const routePath =
-                                withoutExt === "index" ? "/" : `/${withoutExt}`;
-                            pages.push(routePath);
-                        } else if (name === "page.tsx" || name === "page.jsx") {
-                            // Convert src/app/**/page.tsx to route path
-                            let routePath = fullPath
-                                .replace(/^src\/app\//, "")
-                                .replace(/\/?page\.(tsx|jsx)$/, "");
-                            if (routePath === "") routePath = "/";
-                            else routePath = `/${routePath}`;
-                            pages.push(routePath);
-                        }
-                    }
+            // Fallback for projects that don't have the pages column populated yet
+            if (!project.pages) {
+                const fullProject = await ctx.db.project.findUnique({
+                    where: { id: input.projectId },
+                    select: { files: true },
+                });
+                if (fullProject?.files) {
+                    const extracted = extractPageRoutes(fullProject.files);
+                    // Background update
+                    ctx.db.project
+                        .update({
+                            where: { id: input.projectId },
+                            data: { pages: extracted },
+                        })
+                        .catch(console.error);
+                    return { pages: extracted, mainPage: "/" };
                 }
-            };
+                return { pages: [] };
+            }
 
-            extractPages(tree, "");
-
-            const uniquePages = Array.from(new Set(pages));
-            return { pages: uniquePages, mainPage: "/" };
+            return { pages: project.pages as string[], mainPage: "/" };
         }),
 
     getFiles: publicProcedure
@@ -195,6 +217,11 @@ export const projectRouter = createTRPCRouter({
                     );
                 }
 
+                // Auto-tag during creation to avoid slow first load
+                autoTagTree(webContainerTree);
+
+                const pages = extractPageRoutes(webContainerTree);
+
                 // Save to database
                 await ctx.db.project.create({
                     data: {
@@ -206,6 +233,7 @@ export const projectRouter = createTRPCRouter({
                                 ? "NEXTJS"
                                 : "STATIC",
                         files: webContainerTree,
+                        pages: pages,
                     },
                 });
 
@@ -514,7 +542,11 @@ export const projectRouter = createTRPCRouter({
 
                 await localizeResources(tree);
 
+                autoTagTree(tree);
+
                 sanitizeTree(tree);
+
+                const pages = extractPageRoutes(tree);
 
                 const stackEnumMap: Record<string, any> = {
                     nextjs: "NEXTJS",
@@ -528,6 +560,7 @@ export const projectRouter = createTRPCRouter({
                         name: input.name || "Imported Project",
                         stack: stackEnumMap[stack] || "STATIC",
                         files: tree,
+                        pages: pages,
                     },
                 });
 
@@ -569,13 +602,27 @@ export const projectRouter = createTRPCRouter({
             z.object({
                 content: z.string(),
                 patches: z.array(z.any()),
+                filePath: z.string().optional(),
             }),
         )
         .mutation(async ({ input }) => {
+            console.log(
+                `[ApplyPatch] Processing ${input.patches.length} patches for ${input.filePath || "unknown file"}`,
+            );
             let modified = false;
+            const filename = input.filePath?.toLowerCase() || "";
+            const contentTrimmed = input.content.trim();
             const isHtml =
-                input.content.trim().startsWith("<!DOCTYPE") ||
-                input.content.trim().startsWith("<html");
+                filename.endsWith(".html") ||
+                filename.endsWith(".htm") ||
+                contentTrimmed.startsWith("<!DOCTYPE") ||
+                contentTrimmed.startsWith("<html") ||
+                contentTrimmed.startsWith("<head") ||
+                contentTrimmed.startsWith("<body") ||
+                // If it's a fragment but has data-lid and doesn't look like JSX
+                (contentTrimmed.includes("data-lid=") &&
+                    !contentTrimmed.includes("import ") &&
+                    !contentTrimmed.includes("export "));
 
             if (isHtml) {
                 const cheerio = await import("cheerio");
@@ -592,10 +639,14 @@ export const projectRouter = createTRPCRouter({
                                 $element.text(patch.value);
                                 break;
                             case "attribute":
-                                $element.attr(patch.attribute, patch.value);
+                                // For attributes, normalize null values to empty strings
+                                $element.attr(
+                                    patch.attribute,
+                                    patch.value ?? "",
+                                );
                                 break;
                             case "class":
-                                $element.attr("class", patch.value);
+                                $element.attr("class", patch.value ?? "");
                                 break;
                             case "style":
                                 // For static HTML, we can just update the style attribute directly
@@ -678,32 +729,59 @@ export const projectRouter = createTRPCRouter({
                                 element.setBodyText(patch.value);
                             }
                             break;
-                        case "attribute":
-                            const existingAttr = targetForAttrs.getAttribute(
+                        case "attribute": {
+                            if (
+                                patch.attribute === "className" ||
+                                patch.attribute === "class"
+                            )
+                                break;
+
+                            const attr = (targetForAttrs as any).getAttribute(
                                 patch.attribute,
                             );
-                            if (existingAttr) {
-                                existingAttr.remove();
+                            const value = `"${patch.value ?? ""}"`;
+
+                            if (attr?.getKind() === SyntaxKind.JsxAttribute) {
+                                (attr as any).setInitializer(value);
+                            } else {
+                                if (attr) (attr as any).remove();
+                                (targetForAttrs as any).addAttribute({
+                                    name: patch.attribute,
+                                    initializer: value,
+                                });
                             }
-                            let attrValue = patch.value;
-                            if (attrValue === undefined || attrValue === null)
-                                attrValue = "";
-                            targetForAttrs.addAttribute({
-                                name: patch.attribute,
-                                initializer: `"${attrValue}"`,
-                            });
                             break;
-                        case "class":
-                            const existingClass =
-                                targetForAttrs.getAttribute("className");
-                            if (existingClass) {
-                                existingClass.remove();
+                        }
+                        case "class": {
+                            const attr =
+                                targetForAttrs.getAttribute("className") ||
+                                targetForAttrs.getAttribute("class");
+                            const value = `"${patch.value ?? ""}"`;
+
+                            if (attr?.getKind() === SyntaxKind.JsxAttribute) {
+                                // If it was 'class', rename to 'className' for React/JSX standards
+                                // Safe check: JsxAttribute always has a name node.
+                                const nameNode = (attr as any).getNameNode();
+                                const name = nameNode.getText();
+
+                                if (name === "class") {
+                                    (attr as any).remove();
+                                    (targetForAttrs as any).addAttribute({
+                                        name: "className",
+                                        initializer: value,
+                                    });
+                                } else {
+                                    (attr as any).setInitializer(value);
+                                }
+                            } else {
+                                if (attr) attr.remove();
+                                (targetForAttrs as any).addAttribute({
+                                    name: "className",
+                                    initializer: value,
+                                });
                             }
-                            targetForAttrs.addAttribute({
-                                name: "className",
-                                initializer: `"${patch.value}"`,
-                            });
                             break;
+                        }
                         case "style":
                             const camelProperty = String(
                                 patch.property || "",
@@ -768,6 +846,10 @@ export const projectRouter = createTRPCRouter({
                             break;
                     }
                 }
+            }
+
+            if (modified) {
+                console.log("[ApplyPatch] Content successfully modified");
             }
 
             return {

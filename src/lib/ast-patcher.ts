@@ -3,6 +3,7 @@ import type { WebContainer } from "@webcontainer/api";
 type ApplyPatchFn = (input: {
     content: string;
     patches: any[];
+    filePath: string;
 }) => Promise<{ modified: boolean; content: string }>;
 
 /**
@@ -38,6 +39,7 @@ export class WebContainerAstPatcher {
             const { modified, content: newContent } = await this.applyPatchFn({
                 content: currentContent,
                 patches,
+                filePath,
             });
 
             // 3. Write back to WebContainer if changed

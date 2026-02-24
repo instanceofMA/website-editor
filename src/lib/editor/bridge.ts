@@ -23,7 +23,7 @@ export class EditorBridge {
             if (typeof window !== "undefined") {
                 window.addEventListener(
                     "message",
-                    EditorBridge.instance.handleMessage
+                    EditorBridge.instance.handleMessage,
                 );
             }
         }
@@ -61,7 +61,7 @@ export class EditorBridge {
             }
 
             this.listeners.forEach((listener) =>
-                listener(event.data as EditorMessage)
+                listener(event.data as EditorMessage),
             );
         }
     };
@@ -78,7 +78,7 @@ export class EditorBridge {
     private emitPatch(op: any) {
         if (!this.currentLid) {
             console.warn(
-                "[EditorBridge] Cannot emit patch: No current LID selected"
+                "[EditorBridge] Cannot emit patch: No current LID selected",
             );
             return;
         }
@@ -135,7 +135,7 @@ export class EditorBridge {
      */
     public updateClass(className: string) {
         this.postMessage({ type: "UPDATE_CLASS", className });
-        this.emitPatch({ type: "class", className });
+        this.emitPatch({ type: "class", value: className });
     }
 
     /**

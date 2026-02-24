@@ -1,5 +1,10 @@
 import { Project, SyntaxKind } from "ts-morph";
-import { v4 as uuidv4 } from "uuid";
+
+const sharedProject = new Project({
+    useInMemoryFileSystem: true,
+    skipAddingFilesFromTsConfig: true,
+    compilerOptions: { jsx: 1 },
+});
 
 /**
  * Parses a TSX/JSX file string using ts-morph and injects stable `data-lid="uid"` attributes
@@ -9,13 +14,14 @@ export function autoTagTsx(content: string): {
     modified: boolean;
     content: string;
 } {
+    // Fast path: if the file is already mostly tagged, we can skip expensive AST parsing
+    // We check for a reasonable number of tags. If it has some, it's likely already processed.
+    if ((content.match(/data-lid=/g) || []).length > 5) {
+        return { modified: false, content };
+    }
+
     try {
-        const project = new Project({
-            useInMemoryFileSystem: true,
-            skipAddingFilesFromTsConfig: true,
-            compilerOptions: { jsx: 1 },
-        });
-        const sourceFile = project.createSourceFile("temp.tsx", content, {
+        const sourceFile = sharedProject.createSourceFile("temp.tsx", content, {
             overwrite: true,
         });
 
@@ -49,10 +55,15 @@ export function autoTagTsx(content: string): {
             }
         });
 
-        return {
+        const result = {
             modified,
             content: modified ? sourceFile.getFullText() : content,
         };
+
+        // Clean up memory
+        sharedProject.removeSourceFile(sourceFile);
+
+        return result;
     } catch (e) {
         console.error("autoTagTsx error:", e);
         return { modified: false, content };
@@ -67,6 +78,11 @@ export function autoTagHtml(content: string): {
     modified: boolean;
     content: string;
 } {
+    // Fast path for already tagged HTML
+    if ((content.match(/data-lid=/g) || []).length > 5) {
+        return { modified: false, content };
+    }
+
     let modified = false;
     const generateLid = () => Math.random().toString(36).substring(2, 9);
 
@@ -114,13 +130,12 @@ export function autoTagHtml(content: string): {
 export function autoTagTree(tree: any): boolean {
     let modifiedTree = false;
 
-    const walk = (node: any, path: string) => {
+    const walk = (node: any, name: string) => {
         if (node.directory) {
-            for (const [name, child] of Object.entries(node.directory)) {
-                walk(child, `${path}/${name}`);
+            for (const [childName, child] of Object.entries(node.directory)) {
+                walk(child, childName);
             }
         } else if (node.file) {
-            const name = path.split("/").pop() || "";
             // Handle TSX / JSX
             if (name.endsWith(".tsx") || name.endsWith(".jsx")) {
                 const result = autoTagTsx(node.file.contents || "");
@@ -140,6 +155,6 @@ export function autoTagTree(tree: any): boolean {
         }
     };
 
-    walk({ directory: tree }, "");
+    walk({ directory: tree }, "root");
     return modifiedTree;
 }

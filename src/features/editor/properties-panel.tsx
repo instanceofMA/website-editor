@@ -15,6 +15,7 @@ import { PositionPanel } from "./panels/position-panel";
 import { TypographyPanel } from "./panels/typography-panel";
 import { StylePanel } from "./panels/style-panel";
 import { EffectsPanel } from "./panels/effects-panel";
+import { toast } from "sonner";
 
 interface PropertiesPanelProps {
     selectedElement: EditorElement | null;
@@ -60,6 +61,9 @@ export function PropertiesPanel({
     const [manualClassInput, setManualClassInput] = useState("");
     const [showSuggestions, setShowSuggestions] = useState(false);
 
+    const [selectedAllClasses, setSelectedAllClasses] = useState(false);
+    const [copied, setCopied] = useState(false);
+
     // Local overrides for flickering prevention (holds authored units)
     const [styleOverrides, setStyleOverrides] = useState<
         Record<string, string>
@@ -76,6 +80,7 @@ export function PropertiesPanel({
     const setMode = (mode: "inline" | "class") => {
         setTargetMode(mode);
         setStyleOverrides({});
+        setSelectedAllClasses(false);
     };
 
     // If collapsed, only show the toggle button strip
@@ -144,6 +149,69 @@ export function PropertiesPanel({
                 // Fallback to inline if absolutely no class
                 onStyleChange(prop, value);
             }
+        }
+    };
+
+    const handlePaste = (e: React.ClipboardEvent) => {
+        const text = e.clipboardData.getData("text");
+        const pastedClasses = text
+            .split(/[\s,]+/)
+            .filter(Boolean)
+            .map((c) => c.replace(/^\./, "")); // strip leading dots if any
+
+        if (pastedClasses.length > 0) {
+            e.preventDefault();
+            const current = selectedElement.className.trim();
+
+            if (selectedAllClasses) {
+                // Replace All
+                onClassChange(pastedClasses.join(" "));
+                toast.success(`Replaced with ${pastedClasses.length} classes`);
+                setSelectedAllClasses(false);
+            } else {
+                // Merge Unique
+                const existing = current.split(/\s+/).filter(Boolean);
+                const toAdd = pastedClasses.filter(
+                    (c) => !existing.includes(c),
+                );
+
+                if (toAdd.length > 0) {
+                    const newValue = current
+                        ? `${current} ${toAdd.join(" ")}`
+                        : toAdd.join(" ");
+                    onClassChange(newValue);
+                    toast.success(`Added ${toAdd.length} classes`);
+                }
+            }
+        }
+    };
+
+    const handleClassContainerKeyDown = (e: React.KeyboardEvent) => {
+        const isMod = e.metaKey || e.ctrlKey;
+
+        if (isMod && e.key === "a") {
+            e.preventDefault();
+            setSelectedAllClasses(true);
+        } else if (isMod && e.key === "c" && selectedAllClasses) {
+            e.preventDefault();
+            const classes = selectedElement.className.trim();
+            if (classes) {
+                navigator.clipboard.writeText(classes);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+                toast.success("All classes copied to clipboard");
+            }
+        } else if (
+            (e.key === "Backspace" || e.key === "Delete") &&
+            selectedAllClasses
+        ) {
+            e.preventDefault();
+            onClassChange("");
+            setSelectedAllClasses(false);
+            toast.success("All classes removed");
+        } else if (e.key !== "Meta" && e.key !== "Control") {
+            // Any other key clears select-all
+            if (selectedAllClasses) setSelectedAllClasses(false);
         }
     };
 
@@ -243,8 +311,14 @@ export function PropertiesPanel({
                         {/* Unified Class Manager */}
                         <div className="mb-4 border-t border-border/50 pt-3">
                             <div className="flex items-center justify-between mb-1.5">
-                                <label className="text-[10px] text-foreground/80 font-medium uppercase block">
+                                <label className="text-[10px] text-foreground/80 font-medium uppercase flex items-center gap-1.5">
                                     Classes
+                                    {copied && (
+                                        <span className="text-[10px] text-primary flex items-center gap-1 font-medium animate-in fade-in slide-in-from-right-1 normal-case tracking-normal">
+                                            <Check className="w-3 h-3" />
+                                            Copied!
+                                        </span>
+                                    )}
                                 </label>
                                 {targetMode === "class" && (
                                     <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -259,11 +333,18 @@ export function PropertiesPanel({
                                 )}
                             </div>
                             <div
+                                tabIndex={0}
+                                onKeyDown={handleClassContainerKeyDown}
+                                onPaste={handlePaste}
+                                onFocus={() => {}}
+                                onBlur={() => setSelectedAllClasses(false)}
                                 className={cn(
-                                    "flex flex-wrap gap-1.5 p-1.5 rounded-md border items-center transition-colors bg-background",
-                                    targetMode === "class"
-                                        ? "border-primary/50 shadow-[0_0_0_1px_rgba(var(--primary),0.2)]"
-                                        : "border-input",
+                                    "flex flex-wrap gap-1.5 p-1.5 rounded-md border items-center transition-all bg-background outline-none",
+                                    selectedAllClasses
+                                        ? "border-primary ring-2 ring-primary/20 shadow-sm"
+                                        : targetMode === "class"
+                                          ? "border-primary/50 shadow-[0_0_0_1px_rgba(var(--primary),0.2)]"
+                                          : "border-input",
                                 )}
                             >
                                 {selectedElement.className
@@ -359,6 +440,7 @@ export function PropertiesPanel({
                                                 200,
                                             );
                                         }}
+                                        onPaste={handlePaste}
                                         onKeyDown={(e) => {
                                             if (e.key === "Enter") {
                                                 const val =
@@ -381,6 +463,17 @@ export function PropertiesPanel({
                                                     setManualClass(val);
                                                     setManualClassInput(""); // Clear input
                                                     setShowSuggestions(false);
+                                                }
+                                            } else {
+                                                // Let container handle mod keys, but clear selection if typing
+                                                if (
+                                                    !e.metaKey &&
+                                                    !e.ctrlKey &&
+                                                    selectedAllClasses
+                                                ) {
+                                                    setSelectedAllClasses(
+                                                        false,
+                                                    );
                                                 }
                                             }
                                         }}

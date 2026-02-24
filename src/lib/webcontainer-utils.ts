@@ -4,6 +4,7 @@ import path from "path";
 /**
  * Specifically designed for @webcontainer/api.
  * Converts a physical directory on disk into a WebContainer FileSystemTree.
+ * This version processes entries in parallel for better performance.
  */
 export async function getWebContainerFileSystemTree(
     dir: string,
@@ -13,7 +14,7 @@ export async function getWebContainerFileSystemTree(
     try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
 
-        for (const entry of entries) {
+        const tasks = entries.map(async (entry) => {
             const res = path.resolve(dir, entry.name);
 
             // WebContainers typically ignore node_modules, .next, and dist when importing templates.
@@ -21,14 +22,16 @@ export async function getWebContainerFileSystemTree(
                 entry.name === "node_modules" ||
                 entry.name === ".next" ||
                 entry.name === "dist" ||
-                entry.name === ".git"
+                entry.name === ".git" ||
+                entry.name === ".DS_Store"
             ) {
-                continue;
+                return;
             }
 
             if (entry.isDirectory()) {
+                const subTree = await getWebContainerFileSystemTree(res);
                 tree[entry.name] = {
-                    directory: await getWebContainerFileSystemTree(res),
+                    directory: subTree,
                 };
             } else {
                 // Read as Buffer first to check for binary content
@@ -52,7 +55,9 @@ export async function getWebContainerFileSystemTree(
                     };
                 }
             }
-        }
+        });
+
+        await Promise.all(tasks);
     } catch (e) {
         console.error(`Error reading WebContainer tree from ${dir}`, e);
     }
