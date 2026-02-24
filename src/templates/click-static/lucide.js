@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * @license lucide v0.575.0 - ISC
  *

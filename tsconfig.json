@@ -38,5 +38,5 @@
         "**/*.js",
         ".next/types/**/*.ts"
     ],
-    "exclude": ["node_modules", "_legacy_backup", "generated"]
+    "exclude": ["node_modules", "_legacy_backup", "generated", "src/templates"]
 }

@@ -100,9 +100,8 @@ export class WebContainerAstPatcher {
                                 await this.webcontainer.fs.readFile(fullPath);
                             // Convert Uint8Array to base64 string
                             let binary = "";
-                            const len = bytes.byteLength;
-                            for (let i = 0; i < len; i++) {
-                                binary += String.fromCharCode(bytes[i]);
+                            for (const byte of bytes) {
+                                binary += String.fromCharCode(byte);
                             }
                             const base64 = btoa(binary);
 
